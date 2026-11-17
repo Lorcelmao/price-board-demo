@@ -102,6 +102,7 @@ price-board-demo/
 ├── src/
 │   ├── main.tsx, app.tsx      Điểm vào và bố cục trang
 │   ├── components/            Thanh trên, menu, dải chỉ số, bảng giá, hộp thoại, sổ lệnh, biểu đồ
+│   ├── hooks/                 State của App tách theo việc: cấu hình bảng, danh mục, form lệnh, sổ lệnh
 │   ├── lib/                   Kho dữ liệu, nguồn giá, định dạng số, logic form lệnh (kèm test)
 │   ├── net/                   Client WebSocket và REST
 │   └── styles/                CSS của bảng và bố cục
