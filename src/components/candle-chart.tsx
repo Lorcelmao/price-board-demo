@@ -18,11 +18,13 @@ import type { CandleDto } from "../../shared/protocol";
 import { apiGet } from "../net/api";
 import type { SourceView } from "./footer-bar";
 import {
+  candleIndex,
   changeFrom,
   CHART_PREFS_KEY,
   intradayToChart,
   liveIntradayLast,
   liveLastCandle,
+  minuteLabel,
   rangeStart,
   type ChartCandle,
   sanitizePrefs,
@@ -204,6 +206,8 @@ export function CandleChart({ symbol, source = "mock" }: { symbol: string; sourc
       rightPriceScale: { borderColor: "#47475e" },
       timeScale: { borderColor: "#47475e", rightOffset: 4, timeVisible: intraday, secondsVisible: false },
       crosshair: { mode: 0 },
+      // Nến 1 phút nằm trên một ngày cố định (xem minuteTime): nhãn ở con trỏ chỉ hiện giờ, không hiện ngày giả.
+      ...(intraday ? { localization: { timeFormatter: (time: Time) => minuteLabel(time as number) } } : {}),
     });
     chartRef.current = chart;
     return () => {
@@ -280,9 +284,9 @@ export function CandleChart({ symbol, source = "mock" }: { symbol: string; sourc
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !candles) return;
-    const index = new Map(candles.map((candle, position) => [candle.time, position]));
+    const positionOf = candleIndex(candles);
     const onMove = (param: MouseEventParams<Time>) => {
-      const position = param.time !== undefined ? index.get(String(param.time)) : undefined;
+      const position = positionOf(param.time);
       if (position === undefined) {
         setHover(null);
         return;

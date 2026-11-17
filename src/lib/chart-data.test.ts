@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeFrom, DEFAULT_CHART_PREFS, intradayToChart, liveIntradayLast, liveLastCandle, minuteTime, rangeStart, sanitizePrefs } from "./chart-data";
+import { candleIndex, changeFrom, DEFAULT_CHART_PREFS, intradayToChart, liveIntradayLast, liveLastCandle, minuteLabel, minuteTime, rangeStart, sanitizePrefs } from "./chart-data";
 import { ema } from "./indicators";
 
 describe("ema", () => {
@@ -80,5 +80,29 @@ describe("nến 1 phút trong ngày (nguồn Yuanta)", () => {
     expect(liveIntradayLast(last, { last: 110 })).toEqual({ ...last, high: 110, close: 110 });
     expect(liveIntradayLast(last, { last: 95 })).toEqual({ ...last, low: 95, close: 95 });
     expect(liveIntradayLast(last, { last: null })).toBe(last);
+  });
+});
+
+describe("candleIndex (tra cây nến khi rê chuột)", () => {
+  const candle = (time: string | number) => ({ time, open: 1, high: 1, low: 1, close: 1, volume: 1 });
+
+  it("nến 1 phút: thời gian là số, thư viện trả về số", () => {
+    const positionOf = candleIndex([candle(minuteTime("09:16")), candle(minuteTime("09:17"))]);
+    expect(positionOf(minuteTime("09:17"))).toBe(1);
+  });
+
+  it("nến ngày: thời gian là chuỗi", () => {
+    const positionOf = candleIndex([candle("2026-11-16"), candle("2026-11-17")]);
+    expect(positionOf("2026-11-16")).toBe(0);
+  });
+
+  it("chuột ra ngoài vùng có nến thì không có vị trí", () => {
+    const positionOf = candleIndex([candle(minuteTime("09:16"))]);
+    expect(positionOf(undefined)).toBeUndefined();
+    expect(positionOf(minuteTime("15:00"))).toBeUndefined();
+  });
+
+  it("nhãn con trỏ của nến 1 phút chỉ hiện giờ", () => {
+    expect(minuteLabel(minuteTime("13:58"))).toBe("13:58");
   });
 });

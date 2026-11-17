@@ -38,6 +38,16 @@ export type ChartCandle = Omit<CandleDto, "time"> & { time: string | number };
 export const minuteTime = (minute: string): number =>
   Date.UTC(2000, 0, 1, Number(minute.slice(0, 2)), Number(minute.slice(3, 5))) / 1000;
 
+// Giờ "HH:mm" của một mốc giây do minuteTime tạo ra (nhãn thời gian ở con trỏ của nến 1 phút).
+export const minuteLabel = (time: number): string => new Date(time * 1000).toISOString().slice(11, 16);
+
+// Bảng tra vị trí cây nến theo thời gian, dùng khi rê chuột. Thời gian nến ngày là chuỗi, nến 1 phút là số,
+// còn thư viện trả về đúng kiểu đã nạp; đổi cả hai về chuỗi để tra trúng với mọi kiểu.
+export function candleIndex(candles: ChartCandle[]): (time: unknown) => number | undefined {
+  const positions = new Map(candles.map((candle, position) => [String(candle.time), position]));
+  return (time) => (time === undefined || time === null ? undefined : positions.get(String(time)));
+}
+
 export const intradayToChart = (candles: IntradayCandle[]): ChartCandle[] =>
   candles.map(({ time, open, high, low, close, volume }) => ({ time: minuteTime(time), open, high, low, close, volume }));
 
