@@ -1,0 +1,13 @@
+# Redis cho gateway khi phát triển trên máy. Không bắt buộc:
+# không đặt REDIS_URL thì server chạy bằng bộ nhớ (MemoryStore).
+#
+# Chạy: docker compose up -d redis
+# Rồi đặt: REDIS_URL=redis://localhost:6379
+#   PowerShell: $env:REDIS_URL="redis://localhost:6379"
+#
+# Không dùng volume: dữ liệu chỉ để thử việc nạp lại sau khi khởi động lại server.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

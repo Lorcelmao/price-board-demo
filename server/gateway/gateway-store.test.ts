@@ -4,7 +4,7 @@ import type { FeedAdapter, FeedConnection, FeedEvents, FeedHistory } from "../..
 import { emptyQuote, type ServerMessage } from "../../shared/protocol";
 import { startMockServer, type MockServer } from "../index";
 import { seededRandom } from "../market-simulator";
-import { MemoryStore } from "./latest-store";
+import { MemoryStore, type LatestStore } from "./latest-store";
 
 // Nguồn Yuanta giả, có lịch sử theo mã giả.
 function fakeYsflex(history?: FeedHistory) {
@@ -120,5 +120,39 @@ describe("gateway: lịch sử theo mã", () => {
     await Promise.all([1, 2, 3].map(() => fetch(`${base}/api/intraday-candles/FPT?feed=ysflex`)));
     expect(calls).toBe(1);
     expect((await fetch(`${base}/api/trades/FPT?feed=ysflex`)).status).toBe(503);
+  });
+});
+
+describe("gateway: store không trả lời", () => {
+  it("nạp giá treo thì server vẫn mở cổng sau thời gian chờ", async () => {
+    const hanging: LatestStore = {
+      load: () => new Promise(() => undefined),
+      save: () => new Promise(() => undefined),
+      status: () => ({ kind: "redis", connected: false, lastWriteAt: null, errors: 1 }),
+      close: async () => undefined,
+    };
+    const startedAt = Date.now();
+    const { base } = await start({ feeds: [fakeYsflex().adapter], store: hanging, storeLoadTimeoutMs: 200 });
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+    expect((await fetch(`${base}/api/quotes?feed=mock&symbols=FPT`)).status).toBe(200);
+  });
+
+  it("lần ghi trước còn treo thì không gửi thêm lần ghi", async () => {
+    let saves = 0;
+    const slow: LatestStore = {
+      load: async () => [],
+      save: () => { saves += 1; return new Promise(() => undefined); },
+      status: () => ({ kind: "redis", connected: true, lastWriteAt: null, errors: 0 }),
+      close: async () => undefined,
+    };
+    const ysflex = fakeYsflex();
+    const { server } = await start({ feeds: [ysflex.adapter], store: slow, storeIntervalMs: 50 });
+    const tab = await openSocket(server.port, { symbols: ["FPT"], feed: "ysflex" });
+    for (let i = 0; i < 5; i += 1) {
+      ysflex.emit()!.quote("FPT", { last: 48_000 + i * 50 });
+      await wait(80);
+    }
+    expect(saves).toBe(1);
+    tab.socket.close();
   });
 });

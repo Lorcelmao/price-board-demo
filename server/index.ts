@@ -14,6 +14,7 @@ import { createYsflexFeed } from "./feed/ysflex";
 import { FeedRegistry } from "./gateway/feed-registry";
 import { IndexCache } from "./gateway/index-cache";
 import { MemoryStore, type LatestStore } from "./gateway/latest-store";
+import { createRedisStore } from "./gateway/redis-store";
 import { QuoteCache } from "./gateway/quote-cache";
 import { MarketIndexes } from "./market-indexes";
 import { MarketSimulator } from "./market-simulator";
@@ -44,7 +45,19 @@ export interface MockServerOptions {
   // vì nguồn mock tự sinh lại mỗi lần khởi động.
   store?: LatestStore;
   storeIntervalMs?: number;
+  // Hạn chờ nạp giá đã lưu lúc khởi động. Store không trả lời (Redis không nối được) thì server vẫn mở cổng.
+  storeLoadTimeoutMs?: number;
 }
+
+// Chờ một promise tối đa ms mili giây; quá hạn thì trả giá trị dự phòng.
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
 
 export interface MockServer {
   http: Server;
@@ -124,13 +137,21 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
   for (const adapter of options.feeds ?? []) feeds.add(adapter);
   const storedFeeds = (options.feeds ?? []).map((adapter) => adapter.name);
   // Nạp giá đã lưu của nguồn thật; giá này đánh dấu cũ cho tới khi nguồn gửi giá mới.
-  const storeLoaded = Promise.all(storedFeeds.map(async (feed) => quotes.loadStored(feed, await store.load(feed))));
-  // Ghi theo lô: mỗi khoảng thời gian chỉ ghi các mã đã đổi.
+  const loadTimeout = options.storeLoadTimeoutMs ?? 3000;
+  const storeLoaded = Promise.all(
+    storedFeeds.map(async (feed) => quotes.loadStored(feed, await withTimeout(store.load(feed), loadTimeout, []))),
+  );
+  // Ghi theo lô: mỗi khoảng thời gian chỉ ghi các mã đã đổi. Lần ghi trước chưa xong (Redis chậm hay mất kết nối)
+  // thì chưa ghi tiếp; các mã đổi vẫn được gom lại cho lần sau.
+  let saving = false;
   const storeTimer = setInterval(() => {
-    for (const feed of storedFeeds) {
-      const batch = quotes.takeDirty(feed);
-      if (batch.length > 0) void store.save(feed, batch);
-    }
+    if (saving) return;
+    const batches = storedFeeds.map((feed) => [feed, quotes.takeDirty(feed)] as const).filter(([, batch]) => batch.length > 0);
+    if (batches.length === 0) return;
+    saving = true;
+    void Promise.all(batches.map(([feed, batch]) => store.save(feed, batch))).finally(() => {
+      saving = false;
+    });
   }, options.storeIntervalMs ?? 1000);
 
   // Lịch sử theo mã (nến 1 phút, lệnh khớp) từ nguồn có năng lực này. Cache ngắn để nhiều tab mở cùng mã
@@ -449,6 +470,10 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Nguồn Yuanta chỉ mở khi có người chọn nguồn này, đóng sau 60 giây không còn ai xem.
-  const server = await startMockServer({ port: listenPort(), feeds: [createYsflexFeed()] });
+  // Có REDIS_URL thì giữ giá mới nhất trong Redis; không có thì giữ trong bộ nhớ.
+  const redisUrl = process.env.REDIS_URL?.trim();
+  const store = redisUrl ? createRedisStore(redisUrl) : new MemoryStore();
+  const server = await startMockServer({ port: listenPort(), feeds: [createYsflexFeed()], store });
   console.log(`Mock server: http://localhost:${server.port}/api và ws://localhost:${server.port}/ws`);
+  console.log(`Lưu giá mới nhất: ${redisUrl ? "Redis" : "bộ nhớ (không có REDIS_URL)"}`);
 }

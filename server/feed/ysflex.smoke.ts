@@ -1,6 +1,6 @@
 import { createYsflexFeed } from "./ysflex";
 
-// Thử tay: nối thật vào /market trong 15 giây, in số tin theo loại rồi tự dừng.
+// Thử tay: nối thật vào /market trong 15 giây, in số tin theo loại, rồi thử lịch sử của FPT.
 // Không nằm trong `npm test` (Vitest chỉ lấy file *.test.ts).
 // Chạy: npx tsx server/feed/ysflex.smoke.ts
 
@@ -22,9 +22,31 @@ feed.start({
 });
 
 setTimeout(() => {
-  const status = feed.status();
-  console.log(JSON.stringify({ durationMs: Date.now() - startedAt, counts, status }, null, 2));
-  feed.stop();
-  console.log(`[ysflex] stopped=${feed.status().connection}`);
-  process.exit(0);
+  void (async () => {
+    const status = feed.status();
+    const candles = await feed.history!.intraday("FPT").catch((error: Error) => {
+      console.error(`[ysflex] intraday lỗi: ${error.message}`);
+      return [];
+    });
+    const trades = await feed.history!.trades("FPT", { size: 5 }).catch((error: Error) => {
+      console.error(`[ysflex] trades lỗi: ${error.message}`);
+      return [];
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          durationMs: Date.now() - startedAt,
+          counts,
+          status,
+          fpt: { candles: candles.length, latestCandles: candles.slice(-3), trades: trades.slice(0, 5) },
+        },
+        null,
+        2,
+      ),
+    );
+    feed.stop();
+    console.log(`[ysflex] stopped=${feed.status().connection}`);
+    process.exit(0);
+  })();
 }, 15_000);

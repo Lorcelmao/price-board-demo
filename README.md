@@ -62,12 +62,24 @@ Giao diện là trang tĩnh, còn mock server cần chạy liên tục để gi�
 
 | Phần | Nơi chạy | Cấu hình |
 | --- | --- | --- |
-| Server (gateway) | Render (Web Service) | Build `npm ci --include=dev`, Start `npm run server`. Server tự đọc cổng từ biến `PORT`. |
+| Server (gateway) | Render (Web Service) | Build `npm ci --include=dev`, Start `npm run server`. Server tự đọc cổng từ biến `PORT`. Tuỳ chọn: `REDIS_URL` để giữ giá mới nhất trong Redis. |
 | Giao diện | Vercel | Preset Vite, giữ lệnh build mặc định. Biến môi trường `VITE_API_URL` là địa chỉ server trên Render. |
 
 Khi có `VITE_API_URL`, giao diện gọi REST và WebSocket thẳng tới địa chỉ đó (server đã bật CORS). Mọi người xem dùng chung một thị trường giả lập và một tài khoản giao dịch.
 
 Gói miễn phí của Render cho server ngủ khi không có người dùng, nên lần mở đầu có thể phải chờ khoảng một phút. Khi server ngủ, kết nối lên Yuanta cũng đóng; lúc thức dậy, gateway nối lại và tải lại lịch sử chỉ số khi có người chọn nguồn Yuanta.
+
+### Redis (tuỳ chọn)
+
+Có biến `REDIS_URL` thì gateway giữ giá mới nhất của nguồn Yuanta trong Redis (hash `quotes:ysflex:latest`), ghi theo lô mỗi giây. Server khởi động lại (hay Render thức dậy) thì trả ngay giá đã lưu, đánh dấu `stale: true` cho tới khi nguồn gửi giá mới. Không có `REDIS_URL` thì giữ trong bộ nhớ. Redis không kết nối được thì server vẫn chạy: chờ nạp tối đa 3 giây rồi bỏ qua, lỗi đếm trong `/api/feed-status`.
+
+Chạy Redis trên máy bằng Docker:
+
+```bash
+docker compose up -d redis
+```
+
+Rồi đặt `REDIS_URL=redis://localhost:6379` trước khi chạy server.
 
 ## Nguồn giá Yuanta (YSFlex)
 
@@ -78,6 +90,8 @@ Thêm `?nguon=ysflex` vào địa chỉ, hoặc bấm nút "Dùng YSFlex" ở ch
 - server giữ **một** kết nối socket.io tới `/market` của Yuanta cho mọi người xem (`server/feed/ysflex.ts`); kết nối chỉ mở khi có người chọn nguồn này và đóng sau 60 giây không còn ai xem;
 - chỉ có 30 mã VN30, tab HNX và UPCOM bị tắt;
 - dải chỉ số lấy số thật trên cùng luồng: kênh `KRXMDDS|IGI` cho giá trị trực tiếp, yêu cầu `HIST_REQ` với `INTRADAY_1m` cho đường từ 9h (xem `server/feed/ysflex-index-map.ts`);
+- popup chi tiết mã dùng dữ liệu thật trong ngày: nến 1 phút (`INTRADAY_1m|G1`), lệnh khớp có chiều mua/bán chủ động (`KRXMDDS|MD|G1`), khối lượng theo mức giá cộng từ lệnh khớp. Luồng `/market` không có nến ngày, nên ở nguồn này biểu đồ không có khung 1D/1W;
+- adapter bỏ tin có số thứ tự `seq` cũ hơn hoặc trùng trên cùng kênh của một mã;
 - chỉ đọc: không đăng nhập, không đặt lệnh; đặt lệnh chỉ có ở nguồn giả lập vì bộ khớp lệnh dùng giá giả lập.
 
 Bấm "Dùng mock" để quay lại nguồn mặc định.
@@ -111,10 +125,12 @@ Server còn có: `MarketSimulator` (sinh giá và khớp lệnh ngẫu nhiên th
 
 | API | Trả về |
 | --- | --- |
-| `GET /api/quotes?feed=mock\|ysflex&symbols=FPT,VCB` | Giá mới nhất trong cache (bỏ `symbols` để lấy mọi mã của nguồn) |
+| `GET /api/quotes?feed=mock\|ysflex&symbols=FPT,VCB` | Giá mới nhất trong cache, kèm `asOf` (lúc nhận) và `stale` (giá đã lưu, chưa được nguồn gửi lại). Bỏ `symbols` để lấy mọi mã |
 | `GET /api/quotes/:symbol?feed=` | Giá của một mã, 404 nếu chưa có |
 | `GET /api/index-intraday/:code?feed=` | Điểm theo phút của chỉ số (VNI, VN30, HNX, UPCOM) |
-| `GET /api/feed-status` | Trạng thái từng nguồn: kết nối, số tin, số tin bị loại, số lần nối lại, số người xem |
+| `GET /api/intraday-candles/:symbol?feed=ysflex` | Nến 1 phút trong ngày của một mã (nguồn có lịch sử; nguồn khác trả 404) |
+| `GET /api/trades/:symbol?feed=ysflex&size=50&fromSeq=0` | Lệnh khớp gần nhất, có chiều mua/bán chủ động |
+| `GET /api/feed-status` | `{ feeds, store }`: trạng thái từng nguồn (kết nối, số tin, số tin bị loại, số lần nối lại, số người xem) và của nơi lưu giá |
 
 WebSocket `/ws`: gửi `{ "op": "sub", "symbols": [...], "feed": "ysflex" }`, nhận tin `QUOTE` (phần thay đổi của giá một mã) và `INDEX`.
 
