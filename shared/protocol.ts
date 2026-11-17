@@ -3,6 +3,7 @@
 // Đây KHÔNG phải định dạng KRXMDDS thật, vì không dùng tài liệu message nội bộ nào.
 
 import type { Exchange, SessionPhase, Side } from "./market-rules";
+import type { FeedName, QuotePatch } from "./feed";
 import type { IndexSnapshot } from "./indexes";
 import type { Fill, Order } from "./order-merge";
 
@@ -18,7 +19,8 @@ export const ALL_MARKET_TOPICS = [TOPIC.ST, TOPIC.SI, TOPIC.EP, TOPIC.MD];
 export type BookLevel = [price: number, volume: number];
 
 export type ClientMessage =
-  | { op: "sub"; symbols: string[] }
+  // feed: nguồn giá của kết nối này (mặc định "mock"). Một kết nối chỉ theo một nguồn.
+  | { op: "sub"; symbols: string[]; feed?: FeedName }
   | { op: "unsub"; symbols: string[] }
   // token: phiên đăng nhập; thiếu hoặc sai thì server trả AUTH expired và không gửi tin tài khoản.
   | { op: "subAccount"; token?: string }
@@ -72,8 +74,10 @@ export type ServerMessage =
   | MarketWire
   | { op: "pong"; ts: number }
   | { topic: "SESSION"; phase: SessionPhase }
-  // Chỉ số thị trường, gửi cho mọi kết nối mỗi giây.
-  | { topic: "INDEX"; index: IndexSnapshot }
+  // Giá đã chuẩn hoá của một mã, chỉ chứa trường thay đổi. Gửi cho kết nối đã đăng ký mã đó ở đúng nguồn.
+  | { topic: "QUOTE"; feed: FeedName; symbol: string; patch: QuotePatch }
+  // Chỉ số thị trường của một nguồn, gửi cho mọi kết nối theo nguồn đó.
+  | { topic: "INDEX"; feed: FeedName; index: IndexSnapshot }
   | { topic: "ACCOUNT|ORDER"; order: Order }
   | { topic: "ACCOUNT|FILL"; fill: Fill }
   | { topic: "ACCOUNT|BALANCE" }
@@ -100,6 +104,9 @@ export interface Quote {
   expectedPrice: number | null;
   bids: BookLevel[];
   asks: BookLevel[];
+  // Giá trị mua, bán của khối ngoại (đồng). Chỉ nguồn Yuanta có; nguồn mock để trống.
+  foreignBuyValue?: number;
+  foreignSellValue?: number;
 }
 
 export function emptyQuote(symbol: string): Quote {

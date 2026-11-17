@@ -287,13 +287,13 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
       }
     });
     send(socket, { topic: "SESSION", phase: market.phase });
-    for (const index of indexes.snapshots()) send(socket, { topic: "INDEX", index });
+    for (const index of indexes.snapshots()) send(socket, { topic: "INDEX", feed: "mock", index });
   });
 
   const timer = setInterval(() => market.tick(), options.tickMs ?? 250);
   // Chỉ số tính lại và phát cho mọi kết nối mỗi giây (thưa hơn tick giá để đỡ tải).
   const indexTimer = setInterval(() => {
-    for (const index of indexes.update()) for (const socket of clients.keys()) send(socket, { topic: "INDEX", index });
+    for (const index of indexes.update()) for (const socket of clients.keys()) send(socket, { topic: "INDEX", feed: "mock", index });
   }, 1000);
 
   return new Promise((resolve) => {

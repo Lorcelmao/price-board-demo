@@ -2,12 +2,8 @@ import { emptyQuote, type Quote } from "../../shared/protocol";
 
 export type QuoteConnectionStatus = "connecting" | "open" | "reconnecting";
 
-// Quote của bảng giá: thêm giá trị giao dịch khối ngoại (đồng) mà luồng YSFlex có sẵn.
-// Để chung trong kho để giao diện được báo khi số này đổi. Nguồn mock không có hai trường này.
-export type BoardQuote = Quote & {
-  foreignBuyValue?: number;
-  foreignSellValue?: number;
-};
+// Quote của bảng giá. Giá trị khối ngoại (foreignBuyValue, foreignSellValue) đã nằm trong Quote dùng chung.
+export type BoardQuote = Quote;
 
 export interface Scheduler {
   schedule(fn: () => void): void;
