@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createClient } from "redis";
 import { emptyQuote } from "../../shared/protocol";
 import type { StoredQuote } from "./latest-store";
 import { createRedisStore, type RedisClientLike } from "./redis-store";
@@ -162,6 +163,11 @@ describe("RedisStore", () => {
       expect(loaded.find((item) => item.quote.symbol === symbol)).toMatchObject({ asOf: 456 });
     } finally {
       await store.close();
+      // Xoá mã thử để test không để lại rác trong Redis (kể cả Redis trên cloud).
+      const cleaner = createClient({ url: process.env.REDIS_URL });
+      await cleaner.connect();
+      await cleaner.hDel("quotes:mock:latest", symbol);
+      await cleaner.close();
     }
   });
 });
