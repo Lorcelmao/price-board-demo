@@ -1,0 +1,102 @@
+import type { CandleDto } from "../../shared/protocol";
+
+// Dữ liệu cho biểu đồ chi tiết mã. Hàm thuần.
+
+export type ChartType = "candle" | "hollow" | "line" | "area" | "bar";
+export type Timeframe = "1D" | "1W";
+export type ChartRange = "1M" | "6M" | "1Y" | "5Y" | "MAX";
+export type ScaleMode = "normal" | "log" | "percent";
+
+export interface ChartPrefs {
+  type: ChartType;
+  timeframe: Timeframe;
+  range: ChartRange;
+  ema5: boolean;
+  ema20: boolean;
+  volume: boolean;
+  scale: ScaleMode;
+}
+
+export const DEFAULT_CHART_PREFS: ChartPrefs = {
+  type: "candle",
+  timeframe: "1D",
+  range: "6M",
+  ema5: true,
+  ema20: true,
+  volume: true,
+  scale: "normal",
+};
+
+export const CHART_PREFS_KEY = "price-board-demo:bieu-do:v1";
+
+const MONTHS: Record<Exclude<ChartRange, "MAX">, number> = { "1M": 1, "6M": 6, "1Y": 12, "5Y": 60 };
+
+// Đọc lựa chọn đã lưu, bỏ qua giá trị lạ để đổi phiên bản không làm hỏng biểu đồ.
+export function sanitizePrefs(raw: unknown): ChartPrefs {
+  const value = (raw && typeof raw === "object" ? raw : {}) as Partial<ChartPrefs>;
+  const pick = <T extends string>(item: unknown, allowed: readonly T[], fallback: T): T =>
+    allowed.includes(item as T) ? (item as T) : fallback;
+  const flag = (item: unknown, fallback: boolean) => (typeof item === "boolean" ? item : fallback);
+  return {
+    type: pick(value.type, ["candle", "hollow", "line", "area", "bar"], DEFAULT_CHART_PREFS.type),
+    timeframe: pick(value.timeframe, ["1D", "1W"], DEFAULT_CHART_PREFS.timeframe),
+    range: pick(value.range, ["1M", "6M", "1Y", "5Y", "MAX"], DEFAULT_CHART_PREFS.range),
+    ema5: flag(value.ema5, DEFAULT_CHART_PREFS.ema5),
+    ema20: flag(value.ema20, DEFAULT_CHART_PREFS.ema20),
+    volume: flag(value.volume, DEFAULT_CHART_PREFS.volume),
+    scale: pick(value.scale, ["normal", "log", "percent"], DEFAULT_CHART_PREFS.scale),
+  };
+}
+
+// Ngày bắt đầu của khoảng xem, tính lùi từ cây cuối. "MAX" thì null (xem hết).
+export function rangeStart(lastTime: string, range: ChartRange): string | null {
+  if (range === "MAX") return null;
+  const [year, month, day] = lastTime.split("-").map(Number);
+  const start = new Date(year, month - 1 - MONTHS[range], day);
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, "0");
+  const d = String(start.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export interface LiveQuote {
+  last: number | null;
+  ref: number;
+  open: number;
+  high: number;
+  low: number;
+  totalVolume: number;
+}
+
+// Cập nhật cây nến cuối (phiên hôm nay) theo quote realtime. Với nến tuần, cây cuối là tuần hiện tại:
+// giữ open của tuần, mở rộng high/low, close bằng giá đang khớp, khối lượng = các ngày trước + hôm nay.
+// `todayBase` là cây nến hôm nay lúc tải dữ liệu, để biết phần khối lượng của các ngày trước trong tuần.
+export function liveLastCandle(last: CandleDto, quote: LiveQuote, todayBase: CandleDto | null): CandleDto {
+  const close = quote.last ?? quote.ref;
+  if (!close) return last;
+  const dayOpen = quote.open || close;
+  const dayHigh = Math.max(quote.high || close, dayOpen, close);
+  const dayLow = Math.min(quote.low || close, dayOpen, close);
+  const earlierVolume = todayBase ? last.volume - todayBase.volume : 0;
+  const isWeek = todayBase !== null && todayBase.time !== last.time;
+  return {
+    time: last.time,
+    open: isWeek ? last.open : dayOpen,
+    high: isWeek ? Math.max(last.high, dayHigh) : dayHigh,
+    low: isWeek ? Math.min(last.low, dayLow) : dayLow,
+    close,
+    volume: Math.max(0, earlierVolume) + quote.totalVolume,
+  };
+}
+
+export interface CandleChange {
+  change: number;
+  changePct: number;
+}
+
+// Thay đổi so với cây trước: dùng cho chú thích O/H/L/C khi rê chuột.
+export function changeFrom(previous: CandleDto | undefined, current: CandleDto): CandleChange {
+  if (!previous || !previous.close) return { change: 0, changePct: 0 };
+  const change = current.close - previous.close;
+  return { change, changePct: (change / previous.close) * 100 };
+}

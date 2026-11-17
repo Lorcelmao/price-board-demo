@@ -1,0 +1,17 @@
+:root {
+  --bg-page: #191919;
+  --bg-row-odd: #171225;
+  --bg-row-even: #05040e;
+  --bg-head: #3a3a3a;
+  --line: #47475e;
+  --text: #e6e6e6;
+  --accent: #f68e35;
+  --ceil: #f618fb;
+  --floor: #00cfed;
+  --ref: #f2ad3e;
+  --up: #12da35;
+  --down: #ef0216;
+  --flash-up: #21b985;
+  --flash-down: #b8232c;
+  color-scheme: dark;
+}

@@ -1,0 +1,100 @@
+/* Bảng giá: đầu bảng hai tầng đứng yên, thân bảng cuộn dọc bên trong. */
+.pb-board {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-row-even);
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-table {
+  width: 100%;
+  /* Màn hẹp hơn thì bảng cuộn ngang trong .pb-board, không co cột tới mức cắt chữ. */
+  min-width: 1560px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+/* Đầu bảng */
+.pb-table thead th {
+  position: sticky;
+  background: var(--bg-head);
+  color: #dcdcdc;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  text-align: right;
+  z-index: 2;
+}
+.pb-head-groups th { top: 0; height: 26px; }
+.pb-head-cols th { top: 26px; height: 24px; }
+.pb-table thead th.pb-group { text-align: center; }
+.pb-table thead th.pb-col:first-child { text-align: center; }
+
+/* Thân bảng */
+.pb-table tbody td {
+  /* 12px và lề 4px để 24 cột số vừa khung 1600px mà không cắt chữ số cuối hay dấu %. */
+  font-size: 12px;
+  padding: 0 4px;
+  height: 30px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+  border-right: 1px solid rgba(46, 46, 62, .6);
+  overflow: hidden;
+}
+.pb-table tbody tr:nth-child(odd) { background: var(--bg-row-odd); }
+.pb-table tbody tr:nth-child(even) { background: var(--bg-row-even); }
+.pb-table tbody tr:hover { background: #221a33; }
+
+.pb-table td.drag {
+  text-align: center;
+  color: #6f6f7e;
+  letter-spacing: -2px;
+  cursor: grab;
+}
+.pb-table td.sym {
+  text-align: left;
+  font-weight: 700;
+  padding-left: 8px;
+}
+/* Tiêu đề Mã CK căn trái cùng lề 8px với ô, để chữ đầu tiêu đề thẳng hàng với chữ đầu mã. */
+.pb-table thead th[data-col="symbol"] { text-align: left; padding-left: 8px; }
+/* Màu mã theo giá khớp so với TC (lớp px-*). Chưa có giá khớp thì giữ chữ trắng. */
+.pb-table td.sym:not([class*="px-"]) { color: #f0f0f0; }
+.pb-table td.pb-last { font-weight: 700; }
+
+/* Độ rộng cột khai báo bằng <colgroup> trong price-board.tsx: chọn theo chỉ số cột thật,
+   vì hàng đầu bảng dùng colSpan nên nth-child không đếm đúng cột. */
+
+/* Chọn dòng, kéo thả, vạch chỉ báo vị trí thả. */
+.pb-table tbody tr.pb-row-data { cursor: default; }
+.pb-table tbody tr.is-selected { background: #2b2135; box-shadow: inset 0 0 0 1px var(--accent); }
+.pb-table tbody tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
+.pb-table tbody tr.drop-after td { box-shadow: inset 0 -2px 0 var(--accent); }
+
+.pb-table td.drag { padding: 0; }
+.pb-drag-handle {
+  width: 100%; height: 100%; display: block;
+  background: transparent; border: 0; color: #6f6f7e;
+  letter-spacing: -2px; cursor: grab; font: inherit; line-height: 30px;
+  padding: 0 4px;
+}
+.pb-drag-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pb-drag-handle.is-disabled { cursor: not-allowed; opacity: .35; }
+
+/* Tab DM quan tâm: nút × bỏ mã, và dòng hướng dẫn khi tab trống. */
+.pb-remove {
+  width: 100%; height: 100%; display: block; background: transparent; border: 0;
+  color: #8a8a99; font-size: 15px; line-height: 30px; cursor: pointer; padding: 0;
+}
+.pb-remove:hover { color: var(--down); }
+.pb-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pb-table tbody tr.pb-empty-row td {
+  text-align: center; color: #8a8a99; font-size: 12.5px;
+  padding: 18px 8px; white-space: normal;
+}
