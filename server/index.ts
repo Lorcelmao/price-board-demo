@@ -8,6 +8,7 @@ import { Account } from "./account";
 import { AuthStore } from "./auth";
 import { dailyHistory, isoDate, toWeekly } from "./candles";
 import { companyInfo } from "./company";
+import { MarketIndexes } from "./market-indexes";
 import { MarketSimulator } from "./market-simulator";
 import { OrderEngine } from "./order-engine";
 import { MOCK_PORT } from "./port";
@@ -53,6 +54,7 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
   const engine = new OrderEngine(market, account);
   const auth = new AuthStore(options.now);
   const clients = new Map<WebSocket, ClientState>();
+  const indexes = new MarketIndexes(market);
 
   const send = (socket: WebSocket, message: ServerMessage) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
@@ -197,6 +199,11 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         const { symbol, name, exchange, room } = state;
         return respond(res, 200, companyInfo({ symbol, name, exchange, room, price: state.last ?? state.ref }));
       }
+      const indexHistory = pathname.match(/^\/api\/index-intraday\/([A-Z0-9]+)$/);
+      if (method === "GET" && indexHistory) {
+        const points = indexes.history(indexHistory[1]);
+        return points ? respond(res, 200, points) : respond(res, 404, { error: "Không có chỉ số này." });
+      }
       const profile = pathname.match(/^\/api\/volume-profile\/([A-Z0-9]+)$/);
       if (method === "GET" && profile) return respond(res, 200, market.volumeProfile(profile[1]));
 
@@ -280,9 +287,14 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
       }
     });
     send(socket, { topic: "SESSION", phase: market.phase });
+    for (const index of indexes.snapshots()) send(socket, { topic: "INDEX", index });
   });
 
   const timer = setInterval(() => market.tick(), options.tickMs ?? 250);
+  // Chỉ số tính lại và phát cho mọi kết nối mỗi giây (thưa hơn tick giá để đỡ tải).
+  const indexTimer = setInterval(() => {
+    for (const index of indexes.update()) for (const socket of clients.keys()) send(socket, { topic: "INDEX", index });
+  }, 1000);
 
   return new Promise((resolve) => {
     http.listen(options.port ?? MOCK_PORT, () => {
@@ -300,6 +312,7 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         close: () =>
           new Promise((done) => {
             clearInterval(timer);
+            clearInterval(indexTimer);
             for (const socket of clients.keys()) socket.terminate();
             wss.close(() => http.close(() => done()));
           }),

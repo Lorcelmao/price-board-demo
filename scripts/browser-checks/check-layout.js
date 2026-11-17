@@ -164,6 +164,28 @@
     `${icons.length} nút sắp xếp, độ rộng ô mũi tên ${iconWidths.join("/")}px; lệch lề Mã CK ${Number.isNaN(alignDiff) ? "?" : alignDiff.toFixed(1)}px`,
   );
 
+  // C10: bốn thẻ chỉ số VNI, VN30, HNX, UPCOM đều có biểu đồ đã vẽ, và giá trị trên thẻ khớp dòng cùng mã
+  // ở bảng "Chỉ số chính". Chạy khi dải chỉ số đang mở (chưa thu gọn) và đã có số.
+  const cards = [...document.querySelectorAll(".pb-index-card[data-index]")];
+  const cardCodes = cards.map((card) => card.getAttribute("data-index"));
+  const cardIssues = cards.flatMap((card) => {
+    const code = card.getAttribute("data-index");
+    const canvas = card.querySelector(".pb-index-canvas canvas");
+    // Số trên thẻ là chữ của ô giá trị trừ phần (+/- %) trong thẻ small; mũi tên ↑↓ bỏ đi.
+    const valueEl = card.querySelector(`[data-testid="index-value-${code}"]`);
+    const small = valueEl?.querySelector("small")?.textContent || "";
+    const value = (valueEl?.textContent || "").replace(small, "").replace(/[↑↓]/g, "").trim();
+    const row = document.querySelector(`.pb-main-index-row[data-index="${code}"] span:nth-child(2)`);
+    const rowValue = (row?.textContent || "").trim().split(" ")[0];
+    const issues = [];
+    if (!canvas || canvas.width === 0) issues.push(`${code}: chưa vẽ biểu đồ`);
+    if (!value) issues.push(`${code}: chưa có số`);
+    else if (value !== rowValue) issues.push(`${code}: thẻ ${value} khác bảng ${rowValue}`);
+    return issues;
+  });
+  const codesOk = cardCodes.join(",") === "VNI,VN30,HNX,UPCOM";
+  push("C10", codesOk && cardIssues.length === 0, codesOk ? (cardIssues.join("; ") || "4 thẻ có biểu đồ, số khớp bảng") : `thẻ: ${cardCodes.join(",")}`);
+
   window.__checkLayoutResult = results;
   return results;
 })()

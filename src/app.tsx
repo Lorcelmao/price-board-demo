@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BoardTabs } from "./components/board-tabs";
 import { ColumnConfigDialog } from "./components/column-config-dialog";
 import { FooterBar, type ConnectionStatusView, type SourceView } from "./components/footer-bar";
@@ -49,7 +49,7 @@ export function App() {
   const status = useConnectionStatus();
   const phase = useSessionPhase();
 
-  // Dải chỉ số VN30 và các số tổng luôn tính trên nhóm VN30, không theo tab đang mở.
+  // Tổng GTGD ở thanh trên luôn tính trên nhóm VN30, không theo tab đang mở.
   const vn30Symbols = source === "ysflex" ? VN30_YSFLEX : VN30_MOCK;
   const stats = useVn30Stats(vn30Symbols);
 
@@ -123,18 +123,6 @@ export function App() {
     setSelected((current) => (current === symbol ? null : symbol));
   }, []);
 
-  const vn30View = useMemo(() => ({
-    value: stats.index.value,
-    change: stats.index.change,
-    changePct: stats.index.changePct,
-    up: stats.movers.up,
-    flat: stats.movers.flat,
-    down: stats.movers.down,
-    totalVolume: stats.totalVolume,
-    totalValue: stats.turnover,
-    points: stats.points,
-  }), [stats]);
-
   return (
     <div className={`pb-app${board.collapsed ? " is-collapsed" : ""}`}>
       <TopBar
@@ -144,7 +132,7 @@ export function App() {
         onLogout={() => void logout()}
       />
       <MainMenu />
-      {!board.collapsed && <IndexStrip vn30={vn30View} />}
+      {!board.collapsed && <IndexStrip phase={phase} />}
       <BoardTabs
         collapsed={board.collapsed}
         onToggleCollapse={board.toggleCollapse}

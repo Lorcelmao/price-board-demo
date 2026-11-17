@@ -1,4 +1,7 @@
+import { CHART_INDEXES, type IndexPoint } from "../../shared/indexes";
 import { applyMarketMessage } from "../../shared/protocol";
+import { apiGet } from "../net/api";
+import { setIndexHistory, setIndexSnapshot } from "./index-store";
 import { isMarketMessage, MarketClient, type ConnectionStatus } from "../net/market-client";
 import { getQuote, setQuote, setStatus } from "./quote-store";
 import { setSessionPhase } from "./session-phase";
@@ -49,6 +52,10 @@ export function startMockSource(symbols: string[] = VN30_MOCK): void {
       setSessionPhase(message.phase);
       return;
     }
+    if ("topic" in message && message.topic === "INDEX") {
+      setIndexSnapshot(message.index);
+      return;
+    }
     if (!isMarketMessage(message)) return;
     const symbol = message.t55;
     setQuote(symbol, applyMarketMessage(getQuote(symbol), message));
@@ -56,7 +63,12 @@ export function startMockSource(symbols: string[] = VN30_MOCK): void {
   // Nối lại xong thì tải lại toàn bộ, vì trong lúc mất kết nối có thể đã lỡ tin.
   // Lần kết nối đầu cũng đi qua đây, nên không gọi tải riêng ở dưới (tránh gọi hai lần).
   market.onStatus((status) => {
-    if (status === "open") void loadAccount("mock");
+    if (status !== "open") return;
+    void loadAccount("mock");
+    // Lịch sử trong ngày của bốn chỉ số có biểu đồ; tin INDEX sau đó nối tiếp từng phút.
+    for (const code of CHART_INDEXES) {
+      apiGet<IndexPoint[]>(`/index-intraday/${code}`).then((points) => setIndexHistory(code, points)).catch(() => undefined);
+    }
   });
   // Có phiên thì đăng ký tin tài khoản bằng token của phiên; đăng xuất hay hết hạn thì huỷ và xoá kho.
   const syncAccount = () => {

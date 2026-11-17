@@ -11,6 +11,7 @@ Bảng giá chứng khoán realtime viết bằng React và TypeScript, chạy c
 ## Tính năng
 
 - **Bảng giá realtime:** 30 cột chia 5 nhóm (dư mua, khớp lệnh, dư bán, giá, nhà ĐTNN), giá nhận qua WebSocket, ô nháy màu khi số đổi.
+- **Dải chỉ số:** bốn thẻ VNI, VN30, HNX, UPCOM có biểu đồ trong ngày (đường chỉ số đổi màu theo tham chiếu, cột khối lượng từng phút, rê chuột xem số), kèm bảng "Chỉ số chính" có thêm HNX30. Với mock, server tự tính chỉ số từ các mã của nó.
 - **Tab sàn và danh mục quan tâm:** VN30, HNX, UPCOM; thêm hoặc bỏ mã khỏi danh mục, mỗi tab nhớ thứ tự và cách sắp xếp riêng.
 - **Tuỳ biến bảng:** sắp xếp theo cột, kéo thả dòng, ẩn hiện cột, thu gọn dải chỉ số. Cấu hình lưu trong `localStorage`.
 - **Đặt lệnh:** bấm đúp vào ô giá để mở form lệnh có sẵn giá; kiểm tra bước giá, lô, trần sàn, sức mua; có bước xác nhận.
@@ -71,6 +72,7 @@ Khi có `VITE_API_URL`, giao diện gọi REST và WebSocket thẳng tới đị
 Thêm `?nguon=ysflex` vào địa chỉ, hoặc bấm nút "Dùng YSFlex" ở chân trang, để xem giá từ luồng `/market` công khai của YSFlex. Ở chế độ này:
 
 - chỉ có 30 mã VN30, tab HNX và UPCOM bị tắt;
+- dải chỉ số lấy số thật trên cùng luồng: kênh `KRXMDDS|IGI` cho giá trị trực tiếp, yêu cầu `HIST_REQ` với `INTRADAY_1m` cho đường từ 9h (xem `src/lib/ysflex-index-map.ts`);
 - không đăng nhập, không đặt lệnh;
 - trình duyệt nối thẳng tới máy chủ bên ngoài, nên cần mạng và phụ thuộc vào việc luồng đó còn mở.
 
@@ -84,6 +86,7 @@ Trình duyệt (React, cổng 4213)
    v
 Mock server (Node.js, cổng 8790)
    - MarketSimulator: sinh giá và khớp lệnh ngẫu nhiên theo bước giá
+   - MarketIndexes: tính VNI, VN30, HNX, UPCOM, HNX30 từ giá các mã, giữ điểm theo phút cho biểu đồ
    - OrderEngine: nhận, sửa, huỷ, khớp lệnh
    - AuthStore: cấp và kiểm tra token
    - candles: dựng nến lịch sử theo mã (số ngẫu nhiên có hạt giống cố định)

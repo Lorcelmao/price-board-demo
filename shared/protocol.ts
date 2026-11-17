@@ -3,6 +3,7 @@
 // Đây KHÔNG phải định dạng KRXMDDS thật, vì không dùng tài liệu message nội bộ nào.
 
 import type { Exchange, SessionPhase, Side } from "./market-rules";
+import type { IndexSnapshot } from "./indexes";
 import type { Fill, Order } from "./order-merge";
 
 export const TOPIC = {
@@ -71,6 +72,8 @@ export type ServerMessage =
   | MarketWire
   | { op: "pong"; ts: number }
   | { topic: "SESSION"; phase: SessionPhase }
+  // Chỉ số thị trường, gửi cho mọi kết nối mỗi giây.
+  | { topic: "INDEX"; index: IndexSnapshot }
   | { topic: "ACCOUNT|ORDER"; order: Order }
   | { topic: "ACCOUNT|FILL"; fill: Fill }
   | { topic: "ACCOUNT|BALANCE" }
