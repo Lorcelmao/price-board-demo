@@ -40,6 +40,13 @@ export const VN30_MOCK: string[] = [
   "POW", "SHB", "SSI", "STB", "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VNM", "VPB", "VRE",
 ];
 
+// VN30 của nguồn Yuanta: nguyên văn danh sách trang YSFlex đăng ký (30 mã, theo bảng chữ cái).
+export const VN30_YSFLEX: string[] = [
+  "ACB", "BID", "BSR", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG", "LPB", "MBB", "MCH", "MSN",
+  "MWG", "SAB", "SHB", "SSB", "SSI", "STB", "TCB", "TCX", "VCB", "VHM", "VIB", "VIC", "VJC",
+  "VNM", "VPB", "VPL", "VRE",
+];
+
 // Giờ biểu đồ: 09:00 tới 15:00, mỗi phút một điểm (gồm cả giờ nghỉ trưa, để trục giờ đều như bảng giá thật).
 export const SESSION_OPEN = "09:00";
 export const SESSION_CLOSE = "15:00";
