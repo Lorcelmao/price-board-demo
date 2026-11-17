@@ -26,12 +26,11 @@ import { useConnectionStatus } from "./lib/quote-store";
 import { logout, useSession } from "./lib/session";
 import { useSessionPhase } from "./lib/session-phase";
 import { VN30_MOCK, VN30_YSFLEX } from "./lib/vn30";
-import { REMOTE_API } from "./net/api-base";
 
-// Mặc định dùng mock server chạy trên máy. ?nguon=ysflex chuyển sang luồng giá công khai của YSFlex
-// (chỉ đọc, 30 mã VN30); nút nhỏ ở chân trang đổi qua lại giữa hai nguồn. Bản deploy chỉ dùng mock.
+// Mặc định dùng thị trường giả lập. ?nguon=ysflex chuyển sang giá thật của Yuanta, đi qua gateway của server
+// (chỉ đọc, 30 mã VN30); nút nhỏ ở chân trang đổi qua lại giữa hai nguồn.
 const readSource = (): SourceView =>
-  !REMOTE_API && new URLSearchParams(location.search).get("nguon") === "ysflex" ? "ysflex" : "mock";
+  new URLSearchParams(location.search).get("nguon") === "ysflex" ? "ysflex" : "mock";
 
 // Dòng chữ khi tab không có mã nào.
 function emptyMessage(count: number, tab: BoardTab, instruments: InstrumentsState): string | null {

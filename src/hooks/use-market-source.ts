@@ -1,26 +1,22 @@
 import { useEffect } from "react";
 import type { SourceView } from "../components/footer-bar";
-import { setMockTabSymbols, startMockSource } from "../lib/mock-source";
+import { setTabSymbols, startMarketSource } from "../lib/market-source";
 import { startClockPhase } from "../lib/session-phase";
 import { VN30_MOCK, VN30_YSFLEX } from "../lib/vn30";
-import { startYsflexSource } from "../lib/ysflex-source";
 
-// Mở nguồn giá một lần, và với mock thì đăng ký thêm mã của tab đang mở.
+// Mở nguồn giá một lần, rồi đăng ký thêm mã của tab đang mở. Cả hai nguồn đều qua gateway của server.
 export function useMarketSource(source: SourceView, tabSymbols: string[]): void {
-  useEffect(() => {
-    if (source === "ysflex") {
-      // ysflex không có tin đợt: tính từ giờ Việt Nam, làm lại mỗi 15 giây.
-      startClockPhase();
-      startYsflexSource(VN30_YSFLEX);
-    } else {
-      startMockSource(VN30_MOCK);
-    }
-  }, [source]);
+  const base = source === "ysflex" ? VN30_YSFLEX : VN30_MOCK;
 
-  // Đổi tab thì đăng ký mã mới, huỷ mã cũ (chỉ nguồn mock). Nhóm VN30 giữ đăng ký riêng.
-  // Với ysflex, mọi tab dùng chung 30 mã VN30 nên không gửi thêm SUB_REQ.
   useEffect(() => {
-    if (source !== "mock") return;
-    setMockTabSymbols(tabSymbols, VN30_MOCK);
-  }, [source, tabSymbols]);
+    // Yuanta không gửi tin đợt phiên: tính từ giờ Việt Nam, làm lại mỗi 15 giây.
+    if (source === "ysflex") startClockPhase();
+    startMarketSource(source, base);
+  }, [source, base]);
+
+  // Đổi tab thì đăng ký mã mới, huỷ mã cũ. Nhóm VN30 giữ đăng ký riêng.
+  // Với Yuanta, mọi tab dùng chung 30 mã VN30 nên không có mã thêm.
+  useEffect(() => {
+    setTabSymbols(tabSymbols, base);
+  }, [tabSymbols, base]);
 }

@@ -1,4 +1,5 @@
-import type { ClientMessage, MarketWire, ServerMessage } from "../../shared/protocol";
+import type { FeedName } from "../../shared/feed";
+import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { socketUrl } from "./api-base";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
@@ -11,6 +12,9 @@ const RECONNECT_MAX_MS = 15_000;
 // Client WebSocket của mock server, có đếm số người dùng cho mỗi mã.
 // Hai màn cùng xem FPT chỉ tạo một đăng ký, và chỉ huỷ khi màn cuối cùng rời đi.
 export class MarketClient {
+  // Nguồn giá của kết nối này, gửi kèm mọi tin sub. Một kết nối chỉ theo một nguồn.
+  constructor(private readonly feed: FeedName = "mock") {}
+
   private socket: WebSocket | null = null;
   private readonly refCounts = new Map<string, number>();
   private readonly listeners = new Set<(message: ServerMessage) => void>();
@@ -30,7 +34,7 @@ export class MarketClient {
     socket.onopen = () => {
       this.attempts = 0;
       this.setStatus("open");
-      if (this.refCounts.size > 0) this.send({ op: "sub", symbols: [...this.refCounts.keys()] });
+      if (this.refCounts.size > 0) this.send({ op: "sub", symbols: [...this.refCounts.keys()], feed: this.feed });
       if (this.accountWanted) this.send({ op: "subAccount", token: this.accountToken });
       this.startHeartbeat();
     };
@@ -51,7 +55,7 @@ export class MarketClient {
       this.refCounts.set(symbol, count + 1);
       return count === 0;
     });
-    if (added.length > 0) this.send({ op: "sub", symbols: added });
+    if (added.length > 0) this.send({ op: "sub", symbols: added, feed: this.feed });
 
     return () => {
       const removed = symbols.filter((symbol) => {
@@ -124,5 +128,3 @@ export class MarketClient {
   }
 }
 
-export const isMarketMessage = (message: ServerMessage): message is MarketWire =>
-  "t55" in message;

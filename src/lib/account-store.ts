@@ -9,7 +9,7 @@ import { openCount } from "./order-book-view";
 // Kho tài khoản của giao diện.
 // Không import web/lib/account-store.ts hay web/lib/market-store.ts: hai file đó dùng một
 // MarketClient khác và sẽ mở thêm kết nối. Kết nối dùng ở đây là kết nối mock đang có,
-// truyền vào qua onAccountMessage / watchAccount của mock-source.ts.
+// truyền vào qua onAccountMessage / watchAccount của market-source.ts.
 
 export interface AccountState {
   book: OrderBookState;

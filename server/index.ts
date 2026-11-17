@@ -3,20 +3,27 @@ import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { SessionPhase } from "../shared/market-rules";
 import type { OrderDraft } from "../shared/order-validation";
-import type { ClientMessage, MarketWire, PositionDto, ServerMessage } from "../shared/protocol";
+import { isFeedName, type FeedAdapter, type FeedEvents, type FeedName } from "../shared/feed";
+import type { ClientMessage, PositionDto, ServerMessage } from "../shared/protocol";
 import { Account } from "./account";
 import { AuthStore } from "./auth";
 import { dailyHistory, isoDate, toWeekly } from "./candles";
 import { companyInfo } from "./company";
+import { createMockFeed } from "./feed/mock";
+import { FeedRegistry } from "./gateway/feed-registry";
+import { IndexCache } from "./gateway/index-cache";
+import { QuoteCache } from "./gateway/quote-cache";
 import { MarketIndexes } from "./market-indexes";
 import { MarketSimulator } from "./market-simulator";
 import { OrderEngine } from "./order-engine";
-import { MOCK_PORT } from "./port";
+import { listenPort, MOCK_PORT } from "./port";
 
 const PHASES: SessionPhase[] = ["ATO", "CONTINUOUS", "ATC", "CLOSED"];
 
 interface ClientState {
   symbols: Set<string>;
+  // Nguồn giá của kết nối này; null cho tới tin sub đầu tiên.
+  feed: FeedName | null;
   account: boolean;
   // Token đã dùng khi đăng ký tin tài khoản, để ngắt đúng socket khi phiên đó mất hiệu lực.
   token?: string;
@@ -28,6 +35,9 @@ export interface MockServerOptions {
   random?: () => number;
   // Đồng hồ cho phiên đăng nhập; test truyền đồng hồ giả để thử hết hạn.
   now?: () => number;
+  // Các nguồn giá ngoài mock (ví dụ Yuanta). Mở khi có người xem, đóng sau idleMs không còn ai xem.
+  feeds?: FeedAdapter[];
+  idleMs?: number;
 }
 
 export interface MockServer {
@@ -37,6 +47,8 @@ export interface MockServer {
   engine: OrderEngine;
   account: Account;
   auth: AuthStore;
+  feeds: FeedRegistry;
+  quotes: QuoteCache;
   close(): Promise<void>;
   // Ngắt mọi kết nối WebSocket nhưng giữ server sống, để thử client kết nối lại.
   dropAllClients(): void;
@@ -77,9 +89,36 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
     }
   };
 
-  market.onMarket((message: MarketWire) => {
-    for (const [socket, state] of clients) if (state.symbols.has(message.t55)) send(socket, message);
+  // Gateway: mọi nguồn đổ dữ liệu đã chuẩn hoá vào cache, rồi phát cho đúng kết nối đang theo nguồn đó.
+  const quotes = new QuoteCache();
+  const indexCache = new IndexCache();
+  const eventsFor = (feed: FeedName): FeedEvents => ({
+    quote(symbol, patch) {
+      const changed = quotes.apply(feed, symbol, patch);
+      if (!changed) return;
+      for (const [socket, state] of clients) {
+        if (state.feed === feed && state.symbols.has(symbol)) send(socket, { topic: "QUOTE", feed, symbol, patch: changed });
+      }
+    },
+    index(snapshot) {
+      indexCache.setSnapshot(feed, snapshot);
+      for (const [socket, state] of clients) if (state.feed === feed) send(socket, { topic: "INDEX", feed, index: snapshot });
+    },
+    indexHistory(code, points) {
+      indexCache.setHistory(feed, code, points);
+    },
+    connection() {
+      /* trạng thái đọc qua /api/feed-status */
+    },
   });
+  const feeds = new FeedRegistry(eventsFor, { idleMs: options.idleMs });
+  // Mock luôn chạy: bộ khớp lệnh dùng giá giả lập, kể cả khi không ai xem nguồn mock.
+  feeds.add(createMockFeed(market, indexes), true);
+  for (const adapter of options.feeds ?? []) feeds.add(adapter);
+  const feedOf = (req: IncomingMessage): FeedName | null => {
+    const value = new URL(req.url ?? "/", "http://localhost").searchParams.get("feed") ?? "mock";
+    return isFeedName(value) && feeds.has(value) ? value : null;
+  };
 
   engine.onEvent((event) => {
     if (event.kind === "order") broadcastAccount({ topic: "ACCOUNT|ORDER", order: event.order });
@@ -201,8 +240,28 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
       }
       const indexHistory = pathname.match(/^\/api\/index-intraday\/([A-Z0-9]+)$/);
       if (method === "GET" && indexHistory) {
-        const points = indexes.history(indexHistory[1]);
+        const feed = feedOf(req);
+        if (!feed) return respond(res, 400, { error: "Nguồn giá không hợp lệ." });
+        const points = indexCache.history(feed, indexHistory[1]);
         return points ? respond(res, 200, points) : respond(res, 404, { error: "Không có chỉ số này." });
+      }
+      // Giá mới nhất trong cache của gateway. Nguồn chưa mở (chưa ai xem) thì trả mảng rỗng.
+      if (method === "GET" && pathname === "/api/quotes") {
+        const feed = feedOf(req);
+        if (!feed) return respond(res, 400, { error: "Nguồn giá không hợp lệ." });
+        const list = new URL(req.url ?? "/", "http://localhost").searchParams.get("symbols");
+        const symbols = list ? list.split(",").map((symbol) => symbol.trim().toUpperCase()).filter(Boolean) : undefined;
+        return respond(res, 200, quotes.snapshot(feed, symbols));
+      }
+      const oneQuote = pathname.match(/^\/api\/quotes\/([A-Z0-9]+)$/);
+      if (method === "GET" && oneQuote) {
+        const feed = feedOf(req);
+        if (!feed) return respond(res, 400, { error: "Nguồn giá không hợp lệ." });
+        const quote = quotes.get(feed, oneQuote[1]);
+        return quote ? respond(res, 200, quote) : respond(res, 404, { error: "Chưa có giá của mã này." });
+      }
+      if (method === "GET" && pathname === "/api/feed-status") {
+        return respond(res, 200, feeds.status().map((status) => ({ ...status, rejected: status.rejected + quotes.rejected(status.feed) })));
       }
       const profile = pathname.match(/^\/api\/volume-profile\/([A-Z0-9]+)$/);
       if (method === "GET" && profile) return respond(res, 200, market.volumeProfile(profile[1]));
@@ -254,8 +313,12 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
 
   const wss = new WebSocketServer({ server: http, path: "/ws" });
   wss.on("connection", (socket) => {
-    clients.set(socket, { symbols: new Set(), account: false });
-    socket.on("close", () => clients.delete(socket));
+    clients.set(socket, { symbols: new Set(), feed: null, account: false });
+    socket.on("close", () => {
+      const state = clients.get(socket);
+      if (state?.feed) feeds.release(state.feed);
+      clients.delete(socket);
+    });
     socket.on("message", (raw) => {
       let message: ClientMessage;
       try {
@@ -280,21 +343,27 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
       }
       if (message.op === "unsub") message.symbols.forEach((symbol) => state.symbols.delete(symbol));
       if (message.op === "sub") {
+        const feed = isFeedName(message.feed) && feeds.has(message.feed) ? message.feed : "mock";
+        // Đổi nguồn: bỏ người xem ở nguồn cũ, giữ ở nguồn mới, gửi ảnh chụp chỉ số của nguồn mới.
+        if (state.feed !== feed) {
+          if (state.feed) feeds.release(state.feed);
+          state.feed = feed;
+          state.symbols.clear();
+          feeds.acquire(feed);
+          for (const index of indexCache.snapshots(feed)) send(socket, { topic: "INDEX", feed, index });
+        }
+        // Ảnh chụp từ cache ngay khi đăng ký: mở trang hay tải lại không phải chờ tin mới.
         for (const symbol of message.symbols) {
           state.symbols.add(symbol);
-          for (const snapshot of market.snapshot(symbol)) send(socket, snapshot);
+          const quote = quotes.get(feed, symbol);
+          if (quote) send(socket, { topic: "QUOTE", feed, symbol, patch: quote });
         }
       }
     });
     send(socket, { topic: "SESSION", phase: market.phase });
-    for (const index of indexes.snapshots()) send(socket, { topic: "INDEX", feed: "mock", index });
   });
 
   const timer = setInterval(() => market.tick(), options.tickMs ?? 250);
-  // Chỉ số tính lại và phát cho mọi kết nối mỗi giây (thưa hơn tick giá để đỡ tải).
-  const indexTimer = setInterval(() => {
-    for (const index of indexes.update()) for (const socket of clients.keys()) send(socket, { topic: "INDEX", feed: "mock", index });
-  }, 1000);
 
   return new Promise((resolve) => {
     http.listen(options.port ?? MOCK_PORT, () => {
@@ -306,13 +375,15 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         engine,
         account,
         auth,
+        feeds,
+        quotes,
         dropAllClients: () => {
           for (const socket of clients.keys()) socket.terminate();
         },
         close: () =>
           new Promise((done) => {
             clearInterval(timer);
-            clearInterval(indexTimer);
+            feeds.stopAll();
             for (const socket of clients.keys()) socket.terminate();
             wss.close(() => http.close(() => done()));
           }),
@@ -322,6 +393,6 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = await startMockServer();
+  const server = await startMockServer({ port: listenPort() });
   console.log(`Mock server: http://localhost:${server.port}/api và ws://localhost:${server.port}/ws`);
 }

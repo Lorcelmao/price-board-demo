@@ -1,6 +1,5 @@
 import { SESSION_LABEL } from "../../shared/protocol";
 import type { SessionPhase } from "../../shared/market-rules";
-import { REMOTE_API } from "../net/api-base";
 
 // Vùng 6: chân trang cao 30px. Trạng thái kết nối, nguồn và đợt hiện tại nhận qua props.
 export type ConnectionStatusView = "connecting" | "open" | "reconnecting";
@@ -39,16 +38,16 @@ export function FooterBar({ status, source, phase, bookOpen, bookCount, onToggle
         <span className="pb-foot-note">Đơn vị giá x1000VND - Khối lượng x100CP</span>
         <span className="pb-foot-source">Nguồn: {sourceLabel}</span>
         {/* Đổi nguồn bằng đường dẫn: mỗi nguồn khởi động một lần khi tải trang, nên tải lại là cách gọn nhất. */}
-        {!REMOTE_API && <a
+        <a
           className="pb-source-switch"
           data-testid="source-switch"
           href={source === "mock" ? "?nguon=ysflex" : "?"}
           title={source === "mock"
-            ? "Xem giá từ luồng công khai của YSFlex: chỉ đọc, 30 mã VN30, không đăng nhập và đặt lệnh"
-            : "Quay lại mock server trên máy"}
+            ? "Xem giá thật từ luồng của Yuanta qua server: chỉ đọc, 30 mã VN30, không đăng nhập và đặt lệnh"
+            : "Quay lại thị trường giả lập"}
         >
           {source === "mock" ? "Dùng YSFlex" : "Dùng mock"}
-        </a>}
+        </a>
         {phase && <span className="pb-foot-phase" data-testid="footer-phase">{SESSION_LABEL[phase]}</span>}
         {status === "open" ? (
           <span className="pb-foot-status px-up">
