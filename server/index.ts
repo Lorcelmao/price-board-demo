@@ -10,6 +10,7 @@ import { AuthStore } from "./auth";
 import { dailyHistory, isoDate, toWeekly } from "./candles";
 import { companyInfo } from "./company";
 import { createMockFeed } from "./feed/mock";
+import { createYsflexFeed } from "./feed/ysflex";
 import { FeedRegistry } from "./gateway/feed-registry";
 import { IndexCache } from "./gateway/index-cache";
 import { QuoteCache } from "./gateway/quote-cache";
@@ -393,6 +394,7 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = await startMockServer({ port: listenPort() });
+  // Nguồn Yuanta chỉ mở khi có người chọn nguồn này, đóng sau 60 giây không còn ai xem.
+  const server = await startMockServer({ port: listenPort(), feeds: [createYsflexFeed()] });
   console.log(`Mock server: http://localhost:${server.port}/api và ws://localhost:${server.port}/ws`);
 }

@@ -18,7 +18,7 @@ Bảng giá chứng khoán realtime viết bằng React và TypeScript, chạy c
 - **Sổ lệnh:** xem, sửa, huỷ lệnh; tin khớp đẩy về qua WebSocket.
 - **Đăng nhập giả lập:** token Bearer sống 8 giờ, mỗi tài khoản một phiên, server báo khi phiên hết hạn.
 - **Popup chi tiết mã:** biểu đồ nến (Lightweight Charts) với EMA 5, EMA 20, khối lượng, nhiều kiểu biểu đồ và khung thời gian; bốn tab độ sâu giá, khớp lệnh, lịch sử giá, thông tin khác.
-- **Hai nguồn giá:** mặc định là mock server. Nút nhỏ ở chân trang chuyển sang luồng giá công khai của YSFlex (xem mục bên dưới).
+- **Hai nguồn giá qua một gateway:** mặc định là thị trường giả lập. Nút nhỏ ở chân trang chuyển sang giá thật của Yuanta (YSFlex). Cả hai nguồn đều đi qua server; trình duyệt không nối thẳng tới Yuanta (xem mục bên dưới).
 
 ## Chạy thử
 
@@ -53,7 +53,7 @@ Lệnh trên chạy mock server (cổng 8790) và Vite (cổng 4213) cùng lúc.
 | `npm test` | Chạy toàn bộ unit test (Vitest) |
 | `npm run typecheck` | Kiểm tra kiểu TypeScript |
 | `npm run build` | Kiểm tra kiểu rồi build bản production vào `dist/` |
-| `npm run server` | Chỉ chạy mock server |
+| `npm run server` | Chỉ chạy server (đọc cổng từ `PORT` nếu có, như trên Render) |
 | `npm run web` | Chỉ chạy Vite |
 
 ## Deploy
@@ -62,40 +62,61 @@ Giao diện là trang tĩnh, còn mock server cần chạy liên tục để gi�
 
 | Phần | Nơi chạy | Cấu hình |
 | --- | --- | --- |
-| Mock server | Render (Web Service) | Build `npm ci --include=dev`, Start `npm run server`. Server tự đọc cổng từ biến `PORT`. |
+| Server (gateway) | Render (Web Service) | Build `npm ci --include=dev`, Start `npm run server`. Server tự đọc cổng từ biến `PORT`. |
 | Giao diện | Vercel | Preset Vite, giữ lệnh build mặc định. Biến môi trường `VITE_API_URL` là địa chỉ server trên Render. |
 
-Khi có `VITE_API_URL`, giao diện gọi REST và WebSocket thẳng tới địa chỉ đó (server đã bật CORS) và ẩn nguồn YSFlex. Gói miễn phí của Render cho server ngủ khi không có người dùng, nên lần mở đầu có thể phải chờ khoảng một phút. Mọi người xem dùng chung một thị trường giả lập và một tài khoản giao dịch.
+Khi có `VITE_API_URL`, giao diện gọi REST và WebSocket thẳng tới địa chỉ đó (server đã bật CORS). Mọi người xem dùng chung một thị trường giả lập và một tài khoản giao dịch.
 
-## Nguồn giá YSFlex
+Gói miễn phí của Render cho server ngủ khi không có người dùng, nên lần mở đầu có thể phải chờ khoảng một phút. Khi server ngủ, kết nối lên Yuanta cũng đóng; lúc thức dậy, gateway nối lại và tải lại lịch sử chỉ số khi có người chọn nguồn Yuanta.
 
-Thêm `?nguon=ysflex` vào địa chỉ, hoặc bấm nút "Dùng YSFlex" ở chân trang, để xem giá từ luồng `/market` công khai của YSFlex. Ở chế độ này:
+## Nguồn giá Yuanta (YSFlex)
 
+Yuanta cho phép dùng luồng giá realtime này trong phạm vi học tập, kể cả trên trang public.
+
+Thêm `?nguon=ysflex` vào địa chỉ, hoặc bấm nút "Dùng YSFlex" ở chân trang, để xem giá thật. Ở chế độ này:
+
+- server giữ **một** kết nối socket.io tới `/market` của Yuanta cho mọi người xem (`server/feed/ysflex.ts`); kết nối chỉ mở khi có người chọn nguồn này và đóng sau 60 giây không còn ai xem;
 - chỉ có 30 mã VN30, tab HNX và UPCOM bị tắt;
-- dải chỉ số lấy số thật trên cùng luồng: kênh `KRXMDDS|IGI` cho giá trị trực tiếp, yêu cầu `HIST_REQ` với `INTRADAY_1m` cho đường từ 9h (xem `src/lib/ysflex-index-map.ts`);
-- không đăng nhập, không đặt lệnh;
-- trình duyệt nối thẳng tới máy chủ bên ngoài, nên cần mạng và phụ thuộc vào việc luồng đó còn mở.
+- dải chỉ số lấy số thật trên cùng luồng: kênh `KRXMDDS|IGI` cho giá trị trực tiếp, yêu cầu `HIST_REQ` với `INTRADAY_1m` cho đường từ 9h (xem `server/feed/ysflex-index-map.ts`);
+- chỉ đọc: không đăng nhập, không đặt lệnh; đặt lệnh chỉ có ở nguồn giả lập vì bộ khớp lệnh dùng giá giả lập.
 
 Bấm "Dùng mock" để quay lại nguồn mặc định.
 
 ## Kiến trúc
 
 ```text
-Trình duyệt (React, cổng 4213)
-   |  /api (REST) và /ws (WebSocket), Vite chuyển tiếp
-   v
-Mock server (Node.js, cổng 8790)
-   - MarketSimulator: sinh giá và khớp lệnh ngẫu nhiên theo bước giá
-   - MarketIndexes: tính VNI, VN30, HNX, UPCOM, HNX30 từ giá các mã, giữ điểm theo phút cho biểu đồ
-   - OrderEngine: nhận, sửa, huỷ, khớp lệnh
-   - AuthStore: cấp và kiểm tra token
-   - candles: dựng nến lịch sử theo mã (số ngẫu nhiên có hạt giống cố định)
+Yuanta /market (socket.io)          Thị trường giả lập
+        |                                  |
+  feed/ysflex.ts                     feed/mock.ts
+        \                                /
+         +---- Market Data Gateway -----+        server/ (Node.js, cổng 8790)
+               - kiểm tra, chuẩn hoá về Quote
+               - cache giá và chỉ số theo nguồn
+               - mở/đóng nguồn theo người xem
+                 |                 |
+           REST /api/quotes     WebSocket /ws (tin QUOTE, INDEX)
+                 \                 /
+              Trình duyệt (React, cổng 4213; Vite chuyển tiếp /api và /ws)
 ```
 
+Server còn có: `MarketSimulator` (sinh giá và khớp lệnh ngẫu nhiên theo bước giá), `MarketIndexes` (tính VNI, VN30, HNX, UPCOM, HNX30 cho nguồn giả lập), `OrderEngine` (nhận, sửa, huỷ, khớp lệnh), `AuthStore` (cấp và kiểm tra token), `candles` (nến lịch sử theo mã).
+
+- Mỗi nguồn là một adapter cùng hợp đồng (`shared/feed.ts`). Gateway chỉ gửi những trường thật sự đổi, bỏ tin có số không hợp lệ, và gửi ngay ảnh chụp từ cache khi một tab đăng ký, nên mở trang không phải chờ tin mới.
 - Giá đi một chiều từ server qua WebSocket vào `quote-store`. Mỗi ô chỉ đăng ký đúng mã nó cần (`useSyncExternalStore`), nên một lần khớp không vẽ lại cả bảng.
 - Lệnh đi qua REST có gắn token; kết quả khớp đẩy về qua WebSocket và gộp vào `account-store`.
 - Biểu đồ nạp lịch sử một lần bằng `setData`, sau đó chỉ cập nhật cây nến cuối theo giá realtime.
 - Kiểu dữ liệu và luật nghiệp vụ dùng chung (bước giá, lô, kiểm tra lệnh, tính danh mục) nằm trong `shared/`, có test riêng.
+
+### API của gateway
+
+| API | Trả về |
+| --- | --- |
+| `GET /api/quotes?feed=mock\|ysflex&symbols=FPT,VCB` | Giá mới nhất trong cache (bỏ `symbols` để lấy mọi mã của nguồn) |
+| `GET /api/quotes/:symbol?feed=` | Giá của một mã, 404 nếu chưa có |
+| `GET /api/index-intraday/:code?feed=` | Điểm theo phút của chỉ số (VNI, VN30, HNX, UPCOM) |
+| `GET /api/feed-status` | Trạng thái từng nguồn: kết nối, số tin, số tin bị loại, số lần nối lại, số người xem |
+
+WebSocket `/ws`: gửi `{ "op": "sub", "symbols": [...], "feed": "ysflex" }`, nhận tin `QUOTE` (phần thay đổi của giá một mã) và `INDEX`.
 
 ## Cấu trúc thư mục
 
@@ -109,7 +130,9 @@ price-board-demo/
 │   ├── lib/                   Kho dữ liệu, nguồn giá, định dạng số, logic form lệnh (kèm test)
 │   ├── net/                   Client WebSocket và REST
 │   └── styles/                CSS của bảng và bố cục
-├── server/                    Mock server: thị trường giả lập, khớp lệnh, đăng nhập, nến
+├── server/                    Server: gateway, thị trường giả lập, khớp lệnh, đăng nhập, nến
+│   ├── gateway/               Cache giá và chỉ số theo nguồn, vòng đời các nguồn
+│   └── feed/                  Adapter của từng nguồn (mock, Yuanta)
 ├── shared/                    Giao thức tin nhắn và luật nghiệp vụ dùng chung
 ├── scripts/browser-checks/    Script kiểm tra giao diện, dán vào console của trang đang chạy
 └── docs/                      Ảnh chụp màn hình
@@ -129,4 +152,4 @@ Nên xoá `localStorage` rồi tải lại trang trước khi chạy để có c
 
 ## Công nghệ
 
-React 19, TypeScript 5.8, Vite 6, Vitest 3, Lightweight Charts 5 (TradingView, Apache-2.0), `ws` và `tsx` cho mock server, `socket.io-client` cho nguồn YSFlex.
+React 19, TypeScript 5.8, Vite 6, Vitest 3, Lightweight Charts 5 (TradingView, Apache-2.0), `ws` và `tsx` cho server, `socket.io-client` cho kết nối từ server tới Yuanta.

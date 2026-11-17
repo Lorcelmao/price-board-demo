@@ -1,12 +1,10 @@
+import type { QuotePatch } from "../../shared/feed";
 import type { BookLevel, Quote } from "../../shared/protocol";
-import type { BoardQuote } from "./quote-store-core";
 
 // Chuyển một tin của luồng /market thành phần cập nhật của Quote.
 // Hàm thuần, không mở kết nối, không ném lỗi: tin không nhận ra thì trả null.
 // Bản vá chỉ chứa trường có trong tin. Trường vắng mặt không được có mặt dưới dạng undefined,
 // vì bản vá được trộn đè lên dữ liệu đang có: tin chỉ có một phía dư mua thì phía kia phải giữ nguyên.
-
-export type QuotePatch = Partial<BoardQuote>;
 
 export interface MappedMessage {
   symbol: string;
