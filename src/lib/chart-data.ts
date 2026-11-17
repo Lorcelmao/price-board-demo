@@ -1,3 +1,4 @@
+import type { IntradayCandle } from "../../shared/feed";
 import type { CandleDto } from "../../shared/protocol";
 
 // Dữ liệu cho biểu đồ chi tiết mã. Hàm thuần.
@@ -28,6 +29,25 @@ export const DEFAULT_CHART_PREFS: ChartPrefs = {
 };
 
 export const CHART_PREFS_KEY = "price-board-demo:bieu-do:v1";
+
+// Một cây nến để vẽ: nến ngày dùng ngày "YYYY-MM-DD", nến 1 phút dùng mốc giây (UTCTimestamp).
+export type ChartCandle = Omit<CandleDto, "time"> & { time: string | number };
+
+// Nến 1 phút "HH:mm" (giờ Việt Nam) thành mốc giây của thư viện biểu đồ. Coi giờ Việt Nam như UTC
+// trên một ngày cố định, để trục giờ hiện đúng giờ Việt Nam ở mọi múi giờ của máy xem.
+export const minuteTime = (minute: string): number =>
+  Date.UTC(2000, 0, 1, Number(minute.slice(0, 2)), Number(minute.slice(3, 5))) / 1000;
+
+export const intradayToChart = (candles: IntradayCandle[]): ChartCandle[] =>
+  candles.map(({ time, open, high, low, close, volume }) => ({ time: minuteTime(time), open, high, low, close, volume }));
+
+// Cây nến 1 phút cuối theo giá realtime: giữ open và khối lượng, mở rộng high/low, close bằng giá đang khớp.
+// Khối lượng của phút đang chạy chỉ cập nhật khi tải lại lịch sử (mỗi phút).
+export function liveIntradayLast(last: ChartCandle, quote: { last: number | null }): ChartCandle {
+  const close = quote.last;
+  if (!close) return last;
+  return { ...last, high: Math.max(last.high, close), low: Math.min(last.low, close), close };
+}
 
 const MONTHS: Record<Exclude<ChartRange, "MAX">, number> = { "1M": 1, "6M": 6, "1Y": 12, "5Y": 60 };
 
@@ -71,7 +91,7 @@ export interface LiveQuote {
 // Cập nhật cây nến cuối (phiên hôm nay) theo quote realtime. Với nến tuần, cây cuối là tuần hiện tại:
 // giữ open của tuần, mở rộng high/low, close bằng giá đang khớp, khối lượng = các ngày trước + hôm nay.
 // `todayBase` là cây nến hôm nay lúc tải dữ liệu, để biết phần khối lượng của các ngày trước trong tuần.
-export function liveLastCandle(last: CandleDto, quote: LiveQuote, todayBase: CandleDto | null): CandleDto {
+export function liveLastCandle(last: ChartCandle, quote: LiveQuote, todayBase: ChartCandle | null): ChartCandle {
   const close = quote.last ?? quote.ref;
   if (!close) return last;
   const dayOpen = quote.open || close;
@@ -95,7 +115,7 @@ export interface CandleChange {
 }
 
 // Thay đổi so với cây trước: dùng cho chú thích O/H/L/C khi rê chuột.
-export function changeFrom(previous: CandleDto | undefined, current: CandleDto): CandleChange {
+export function changeFrom(previous: ChartCandle | undefined, current: ChartCandle): CandleChange {
   if (!previous || !previous.close) return { change: 0, changePct: 0 };
   const change = current.close - previous.close;
   return { change, changePct: (change / previous.close) * 100 };

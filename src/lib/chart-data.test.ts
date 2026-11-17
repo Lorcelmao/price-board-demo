@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeFrom, DEFAULT_CHART_PREFS, liveLastCandle, rangeStart, sanitizePrefs } from "./chart-data";
+import { changeFrom, DEFAULT_CHART_PREFS, intradayToChart, liveIntradayLast, liveLastCandle, minuteTime, rangeStart, sanitizePrefs } from "./chart-data";
 import { ema } from "./indicators";
 
 describe("ema", () => {
@@ -61,5 +61,24 @@ describe("thay đổi so với cây trước", () => {
     const current = { time: "b", open: 0, high: 0, low: 0, close: 51_000, volume: 0 };
     expect(changeFrom(previous, current)).toEqual({ change: 1_000, changePct: 2 });
     expect(changeFrom(undefined, current)).toEqual({ change: 0, changePct: 0 });
+  });
+});
+
+describe("nến 1 phút trong ngày (nguồn Yuanta)", () => {
+  it("phút HH:mm thành mốc giây tăng dần, cách nhau 60 giây", () => {
+    expect(minuteTime("09:16") - minuteTime("09:15")).toBe(60);
+    expect(new Date(minuteTime("14:45") * 1000).toISOString().slice(11, 16)).toBe("14:45");
+  });
+
+  it("đổi nến 1 phút sang dạng vẽ được, giữ đủ giá và khối lượng", () => {
+    const [candle] = intradayToChart([{ time: "09:16", open: 49_400, high: 49_450, low: 49_350, close: 49_450, volume: 131_100 }]);
+    expect(candle).toEqual({ time: minuteTime("09:16"), open: 49_400, high: 49_450, low: 49_350, close: 49_450, volume: 131_100 });
+  });
+
+  it("cây cuối theo giá realtime: mở rộng cao/thấp, giữ open và khối lượng", () => {
+    const last = { time: minuteTime("10:00"), open: 100, high: 105, low: 99, close: 101, volume: 50 };
+    expect(liveIntradayLast(last, { last: 110 })).toEqual({ ...last, high: 110, close: 110 });
+    expect(liveIntradayLast(last, { last: 95 })).toEqual({ ...last, low: 95, close: 95 });
+    expect(liveIntradayLast(last, { last: null })).toBe(last);
   });
 });

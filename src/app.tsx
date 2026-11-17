@@ -184,6 +184,7 @@ export function App() {
       {detailSymbol && (
         <SymbolDetailDialog
           symbol={detailSymbol}
+          source={source}
           name={instruments.find((item) => item.symbol === detailSymbol)?.name ?? detailSymbol}
           covered={orderOpen || loginOpen}
           onOrder={orderForm.openFromDetail}

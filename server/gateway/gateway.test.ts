@@ -79,7 +79,7 @@ describe("gateway: nguồn Yuanta", () => {
     expect(ysflex.calls.start).toBe(0);
     const tabs = await Promise.all([1, 2, 3].map(() => openSocket({ symbols: ["FPT"], feed: "ysflex" })));
     expect(ysflex.calls.start).toBe(1);
-    const status = (await (await fetch(`${base}/api/feed-status`)).json()) as Array<{ feed: string; viewers: number }>;
+    const { feeds: status } = (await (await fetch(`${base}/api/feed-status`)).json()) as { feeds: Array<{ feed: string; viewers: number }> };
     expect(status.find((item) => item.feed === "ysflex")?.viewers).toBe(3);
     tabs.forEach(({ socket }) => socket.close());
   });
@@ -115,7 +115,7 @@ describe("gateway: nguồn Yuanta", () => {
     ysflex.emit()!.quote("FPT", { last: Number.NaN });
     await wait();
     expect(quotesOf(tab.messages)).toHaveLength(0);
-    const status = (await (await fetch(`${base}/api/feed-status`)).json()) as Array<{ feed: string; rejected: number }>;
+    const { feeds: status } = (await (await fetch(`${base}/api/feed-status`)).json()) as { feeds: Array<{ feed: string; rejected: number }> };
     expect(status.find((item) => item.feed === "ysflex")?.rejected).toBe(1);
     tab.socket.close();
   });

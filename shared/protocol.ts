@@ -75,7 +75,8 @@ export type ServerMessage =
   | { op: "pong"; ts: number }
   | { topic: "SESSION"; phase: SessionPhase }
   // Giá đã chuẩn hoá của một mã, chỉ chứa trường thay đổi. Gửi cho kết nối đã đăng ký mã đó ở đúng nguồn.
-  | { topic: "QUOTE"; feed: FeedName; symbol: string; patch: QuotePatch }
+  // stale: giá nạp lại từ store lúc server khởi động, chưa được nguồn xác nhận lại.
+  | { topic: "QUOTE"; feed: FeedName; symbol: string; patch: QuotePatch; stale?: boolean }
   // Chỉ số thị trường của một nguồn, gửi cho mọi kết nối theo nguồn đó.
   | { topic: "INDEX"; feed: FeedName; index: IndexSnapshot }
   | { topic: "ACCOUNT|ORDER"; order: Order }

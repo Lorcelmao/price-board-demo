@@ -76,6 +76,10 @@ export class FeedRegistry {
     }, this.idleMs);
   }
 
+  adapter(feed: FeedName): FeedAdapter | undefined {
+    return this.entries.get(feed)?.adapter;
+  }
+
   status(): Array<FeedStatus & { viewers: number }> {
     return [...this.entries.values()].map((entry) => ({ ...entry.adapter.status(), viewers: entry.viewers }));
   }

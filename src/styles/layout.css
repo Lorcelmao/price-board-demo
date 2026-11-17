@@ -131,6 +131,7 @@ body {
 .pb-main-index-head span:not(:first-child), .pb-main-index-row span:not(:first-child) { text-align: right; }
 .pb-main-index-row { border-bottom: 1px solid #17151d; }
 .pb-main-index-row span:first-child { font-weight: 600; }
+.ui-chart-note { font-size: 11px; color: #9a9a9a; }
 .pb-chart-credit { display: block; margin-top: 4px; font-size: 10px; color: #6f6f6f; text-decoration: none; text-align: right; }
 .pb-chart-credit:hover { color: #9a9a9a; text-decoration: underline; }
 

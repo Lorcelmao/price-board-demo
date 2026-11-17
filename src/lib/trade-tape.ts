@@ -23,6 +23,13 @@ export function nextTape(tape: Trade[], previous: TapeQuote | null, quote: TapeQ
   return [{ time: now, price: quote.last, volume }, ...tape].slice(0, TAPE_LIMIT);
 }
 
+// Khối lượng khớp theo mức giá, cộng từ danh sách lệnh khớp; giá cao ở trên.
+export function profileFromTrades(trades: Array<{ price: number; volume: number }>): Array<{ price: number; volume: number }> {
+  const byPrice = new Map<number, number>();
+  for (const { price, volume } of trades) byPrice.set(price, (byPrice.get(price) ?? 0) + volume);
+  return [...byPrice].map(([price, volume]) => ({ price, volume })).sort((a, b) => b.price - a.price);
+}
+
 // Gộp khối lượng theo giờ (08h đến 16h) cho biểu đồ cột nhỏ ở tab "Khớp lệnh".
 export function volumeByHour(buckets: Array<{ minute: string; volume: number }>): Array<{ hour: number; volume: number }> {
   const hours = Array.from({ length: 9 }, (_, index) => ({ hour: 8 + index, volume: 0 }));

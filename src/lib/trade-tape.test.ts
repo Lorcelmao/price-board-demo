@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextTape, TAPE_LIMIT, volumeByHour } from "./trade-tape";
+import { nextTape, profileFromTrades, TAPE_LIMIT, volumeByHour } from "./trade-tape";
 
 describe("danh sách khớp lệnh", () => {
   it("Tổng KL tăng thì thêm một lần khớp ở giá mới nhất, mới nhất ở đầu", () => {
@@ -39,5 +39,19 @@ describe("khối lượng theo giờ", () => {
     expect(hours[0]).toEqual({ hour: 8, volume: 100 });
     expect(hours[1]).toEqual({ hour: 9, volume: 500 });
     expect(hours[8]).toEqual({ hour: 16, volume: 50 });
+  });
+});
+
+describe("profileFromTrades", () => {
+  it("cộng khối lượng theo mức giá, giá cao ở trên", () => {
+    expect(profileFromTrades([
+      { price: 48_500, volume: 100 },
+      { price: 48_600, volume: 50 },
+      { price: 48_500, volume: 200 },
+    ])).toEqual([{ price: 48_600, volume: 50 }, { price: 48_500, volume: 300 }]);
+  });
+
+  it("không có lệnh khớp thì rỗng", () => {
+    expect(profileFromTrades([])).toEqual([]);
   });
 });

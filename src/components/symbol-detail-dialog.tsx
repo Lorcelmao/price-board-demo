@@ -1,3 +1,4 @@
+import type { SourceView } from "./footer-bar";
 import { useEffect, useState } from "react";
 import type { Side } from "../../shared/market-rules";
 import { formatPrice } from "../net/format";
@@ -29,6 +30,7 @@ const loadTab = (): TabId => {
 
 interface SymbolDetailDialogProps {
   symbol: string;
+  source: SourceView;
   name: string;
   // Đang có hộp thoại khác đè lên (form đặt lệnh, đăng nhập) thì Esc để hộp thoại đó xử lý.
   covered: boolean;
@@ -36,7 +38,7 @@ interface SymbolDetailDialogProps {
   onClose: () => void;
 }
 
-export function SymbolDetailDialog({ symbol, name, covered, onOrder, onClose }: SymbolDetailDialogProps) {
+export function SymbolDetailDialog({ symbol, source, name, covered, onOrder, onClose }: SymbolDetailDialogProps) {
   const quote = useQuote(symbol);
   const [tab, setTab] = useState<TabId>(loadTab);
 
@@ -90,7 +92,7 @@ export function SymbolDetailDialog({ symbol, name, covered, onOrder, onClose }: 
         </div>
 
         <div className="ui-detail-body">
-          <CandleChart symbol={symbol} />
+          <CandleChart symbol={symbol} source={source} />
           <section className="ui-detail-side">
             <div className="ui-tabs" role="tablist" aria-label="Thông tin mã">
               {TABS.map(([id, label]) => (
@@ -98,9 +100,9 @@ export function SymbolDetailDialog({ symbol, name, covered, onOrder, onClose }: 
                   className={`ui-tab${tab === id ? " is-active" : ""}`} onClick={() => chooseTab(id)}>{label}</button>
               ))}
             </div>
-            {tab === "depth" && <DepthTab symbol={symbol} />}
-            {tab === "trades" && <TradesTab symbol={symbol} />}
-            {tab === "history" && <HistoryTab symbol={symbol} />}
+            {tab === "depth" && <DepthTab symbol={symbol} source={source} />}
+            {tab === "trades" && <TradesTab symbol={symbol} source={source} />}
+            {tab === "history" && <HistoryTab symbol={symbol} source={source} />}
             {tab === "company" && <CompanyTab symbol={symbol} />}
           </section>
         </div>

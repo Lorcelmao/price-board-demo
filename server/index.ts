@@ -13,6 +13,7 @@ import { createMockFeed } from "./feed/mock";
 import { createYsflexFeed } from "./feed/ysflex";
 import { FeedRegistry } from "./gateway/feed-registry";
 import { IndexCache } from "./gateway/index-cache";
+import { MemoryStore, type LatestStore } from "./gateway/latest-store";
 import { QuoteCache } from "./gateway/quote-cache";
 import { MarketIndexes } from "./market-indexes";
 import { MarketSimulator } from "./market-simulator";
@@ -39,6 +40,10 @@ export interface MockServerOptions {
   // Các nguồn giá ngoài mock (ví dụ Yuanta). Mở khi có người xem, đóng sau idleMs không còn ai xem.
   feeds?: FeedAdapter[];
   idleMs?: number;
+  // Nơi giữ giá mới nhất qua những lần khởi động lại (mặc định trong bộ nhớ). Chỉ lưu nguồn thật,
+  // vì nguồn mock tự sinh lại mỗi lần khởi động.
+  store?: LatestStore;
+  storeIntervalMs?: number;
 }
 
 export interface MockServer {
@@ -91,7 +96,8 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
   };
 
   // Gateway: mọi nguồn đổ dữ liệu đã chuẩn hoá vào cache, rồi phát cho đúng kết nối đang theo nguồn đó.
-  const quotes = new QuoteCache();
+  const quotes = new QuoteCache(options.now);
+  const store = options.store ?? new MemoryStore();
   const indexCache = new IndexCache();
   const eventsFor = (feed: FeedName): FeedEvents => ({
     quote(symbol, patch) {
@@ -116,6 +122,29 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
   // Mock luôn chạy: bộ khớp lệnh dùng giá giả lập, kể cả khi không ai xem nguồn mock.
   feeds.add(createMockFeed(market, indexes), true);
   for (const adapter of options.feeds ?? []) feeds.add(adapter);
+  const storedFeeds = (options.feeds ?? []).map((adapter) => adapter.name);
+  // Nạp giá đã lưu của nguồn thật; giá này đánh dấu cũ cho tới khi nguồn gửi giá mới.
+  const storeLoaded = Promise.all(storedFeeds.map(async (feed) => quotes.loadStored(feed, await store.load(feed))));
+  // Ghi theo lô: mỗi khoảng thời gian chỉ ghi các mã đã đổi.
+  const storeTimer = setInterval(() => {
+    for (const feed of storedFeeds) {
+      const batch = quotes.takeDirty(feed);
+      if (batch.length > 0) void store.save(feed, batch);
+    }
+  }, options.storeIntervalMs ?? 1000);
+
+  // Lịch sử theo mã (nến 1 phút, lệnh khớp) từ nguồn có năng lực này. Cache ngắn để nhiều tab mở cùng mã
+  // không làm gửi lặp yêu cầu lên nguồn.
+  const historyCache = new Map<string, { at: number; value: Promise<unknown> }>();
+  const cachedHistory = <T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> => {
+    const now = Date.now();
+    const hit = historyCache.get(key);
+    if (hit && now - hit.at < ttlMs) return hit.value as Promise<T>;
+    const value = load();
+    historyCache.set(key, { at: now, value });
+    value.catch(() => historyCache.delete(key));
+    return value;
+  };
   const feedOf = (req: IncomingMessage): FeedName | null => {
     const value = new URL(req.url ?? "/", "http://localhost").searchParams.get("feed") ?? "mock";
     return isFeedName(value) && feeds.has(value) ? value : null;
@@ -252,17 +281,41 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         if (!feed) return respond(res, 400, { error: "Nguồn giá không hợp lệ." });
         const list = new URL(req.url ?? "/", "http://localhost").searchParams.get("symbols");
         const symbols = list ? list.split(",").map((symbol) => symbol.trim().toUpperCase()).filter(Boolean) : undefined;
-        return respond(res, 200, quotes.snapshot(feed, symbols));
+        return respond(res, 200, quotes.entries(feed, symbols).map(({ quote, asOf, stale }) => ({ ...quote, asOf, stale })));
       }
       const oneQuote = pathname.match(/^\/api\/quotes\/([A-Z0-9]+)$/);
       if (method === "GET" && oneQuote) {
         const feed = feedOf(req);
         if (!feed) return respond(res, 400, { error: "Nguồn giá không hợp lệ." });
-        const quote = quotes.get(feed, oneQuote[1]);
-        return quote ? respond(res, 200, quote) : respond(res, 404, { error: "Chưa có giá của mã này." });
+        const entry = quotes.entry(feed, oneQuote[1]);
+        return entry
+          ? respond(res, 200, { ...entry.quote, asOf: entry.asOf, stale: entry.stale })
+          : respond(res, 404, { error: "Chưa có giá của mã này." });
       }
       if (method === "GET" && pathname === "/api/feed-status") {
-        return respond(res, 200, feeds.status().map((status) => ({ ...status, rejected: status.rejected + quotes.rejected(status.feed) })));
+        const list = feeds.status().map((status) => ({ ...status, rejected: status.rejected + quotes.rejected(status.feed) }));
+        return respond(res, 200, { feeds: list, store: store.status() });
+      }
+      const intradayCandles = pathname.match(/^\/api\/intraday-candles\/([A-Z0-9]+)$/);
+      const trades = pathname.match(/^\/api\/trades\/([A-Z0-9]+)$/);
+      if (method === "GET" && (intradayCandles || trades)) {
+        const feed = feedOf(req);
+        const history = feed ? feeds.adapter(feed)?.history : undefined;
+        if (!feed || !history) return respond(res, 404, { error: "Nguồn này không có lịch sử theo mã." });
+        try {
+          if (intradayCandles) {
+            const symbol = intradayCandles[1];
+            return respond(res, 200, await cachedHistory(`${feed}|1m|${symbol}`, 15_000, () => history.intraday(symbol)));
+          }
+          const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+          const fromSeq = Number(params.get("fromSeq") ?? 0) || 0;
+          const size = Math.min(200, Math.max(1, Number(params.get("size") ?? 50) || 50));
+          const symbol = trades![1];
+          return respond(res, 200, await cachedHistory(`${feed}|trades|${symbol}|${fromSeq}|${size}`, 5_000, () => history.trades(symbol, { fromSeq, size })));
+        } catch (error) {
+          // Nguồn chưa mở (chưa ai xem) hay quá thời gian chờ: báo tạm thời không có, để client thử lại sau.
+          return respond(res, 503, { error: `Chưa lấy được lịch sử: ${String(error)}` });
+        }
       }
       const profile = pathname.match(/^\/api\/volume-profile\/([A-Z0-9]+)$/);
       if (method === "GET" && profile) return respond(res, 200, market.volumeProfile(profile[1]));
@@ -356,8 +409,8 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         // Ảnh chụp từ cache ngay khi đăng ký: mở trang hay tải lại không phải chờ tin mới.
         for (const symbol of message.symbols) {
           state.symbols.add(symbol);
-          const quote = quotes.get(feed, symbol);
-          if (quote) send(socket, { topic: "QUOTE", feed, symbol, patch: quote });
+          const entry = quotes.entry(feed, symbol);
+          if (entry) send(socket, { topic: "QUOTE", feed, symbol, patch: entry.quote, ...(entry.stale ? { stale: true } : {}) });
         }
       }
     });
@@ -366,7 +419,7 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
 
   const timer = setInterval(() => market.tick(), options.tickMs ?? 250);
 
-  return new Promise((resolve) => {
+  return storeLoaded.then(() => new Promise((resolve) => {
     http.listen(options.port ?? MOCK_PORT, () => {
       const address = http.address();
       resolve({
@@ -384,13 +437,14 @@ export function startMockServer(options: MockServerOptions = {}): Promise<MockSe
         close: () =>
           new Promise((done) => {
             clearInterval(timer);
+            clearInterval(storeTimer);
             feeds.stopAll();
             for (const socket of clients.keys()) socket.terminate();
-            wss.close(() => http.close(() => done()));
+            wss.close(() => http.close(() => void store.close().then(() => done())));
           }),
       });
     });
-  });
+  }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

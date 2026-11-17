@@ -13,13 +13,18 @@ import {
   type SeriesType,
   type Time,
 } from "lightweight-charts";
+import type { IntradayCandle } from "../../shared/feed";
 import type { CandleDto } from "../../shared/protocol";
 import { apiGet } from "../net/api";
+import type { SourceView } from "./footer-bar";
 import {
   changeFrom,
   CHART_PREFS_KEY,
+  intradayToChart,
+  liveIntradayLast,
   liveLastCandle,
   rangeStart,
+  type ChartCandle,
   sanitizePrefs,
   type ChartPrefs,
   type ChartRange,
@@ -31,7 +36,8 @@ import { ema } from "../lib/indicators";
 import { useQuote } from "../lib/quote-store";
 
 // Biểu đồ nến của popup chi tiết mã, vẽ bằng Lightweight Charts (TradingView, Apache-2.0).
-// Dữ liệu nến ngày/tuần lấy từ mock (/api/candles), cây cuối cập nhật theo giá realtime.
+// Nguồn mock: nến ngày/tuần lấy từ /api/candles. Nguồn Yuanta: nến 1 phút trong ngày lấy qua gateway
+// (/api/intraday-candles), vì luồng /market không có nến ngày. Cây cuối luôn cập nhật theo giá realtime.
 // Dùng bộ màu mặc định của TradingView, dịu hơn màu tăng giảm của bảng giá.
 
 const UP = "#089981";
@@ -70,12 +76,12 @@ const savePrefs = (prefs: ChartPrefs) => {
 };
 
 // Dữ liệu cho từng kiểu series: nến và cột OHLC cần đủ 4 giá; đường và vùng chỉ cần giá đóng cửa.
-const seriesPoint = (type: ChartType, candle: CandleDto) =>
+const seriesPoint = (type: ChartType, candle: ChartCandle) =>
   type === "line" || type === "area"
     ? { time: candle.time as Time, value: candle.close }
     : { time: candle.time as Time, open: candle.open, high: candle.high, low: candle.low, close: candle.close };
 
-const volumePoint = (candle: CandleDto, previous?: CandleDto) => ({
+const volumePoint = (candle: ChartCandle, previous?: ChartCandle) => ({
   time: candle.time as Time,
   value: candle.volume,
   color: candle.close >= (previous?.close ?? candle.open) ? "rgba(8, 153, 129, 0.5)" : "rgba(242, 54, 69, 0.5)",
@@ -104,16 +110,21 @@ function addMainSeries(chart: IChartApi, type: ChartType): ISeriesApi<SeriesType
 }
 
 interface Legend {
-  candle: CandleDto;
+  candle: ChartCandle;
   change: number;
   changePct: number;
 }
 
-export function CandleChart({ symbol }: { symbol: string }) {
+// Nến 1 phút tải lại mỗi phút để có cây mới và khối lượng của phút vừa xong.
+const INTRADAY_REFRESH_MS = 60_000;
+
+export function CandleChart({ symbol, source = "mock" }: { symbol: string; source?: SourceView }) {
   const quote = useQuote(symbol);
+  const intraday = source === "ysflex";
   const [prefs, setPrefs] = useState<ChartPrefs>(loadPrefs);
-  const [daily, setDaily] = useState<CandleDto[] | null>(null);
-  const [weekly, setWeekly] = useState<CandleDto[] | null>(null);
+  const [daily, setDaily] = useState<ChartCandle[] | null>(null);
+  const [weekly, setWeekly] = useState<ChartCandle[] | null>(null);
+  const [minutes, setMinutes] = useState<ChartCandle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<Legend | null>(null);
 
@@ -131,8 +142,26 @@ export function CandleChart({ symbol }: { symbol: string }) {
       return next;
     });
 
-  // Tải nến ngày (luôn cần: cây hôm nay làm mốc cho realtime) và nến tuần khi chọn 1W.
+  // Nguồn Yuanta: nến 1 phút trong ngày, tải lại mỗi phút.
   useEffect(() => {
+    if (!intraday) return;
+    let cancelled = false;
+    setError(null);
+    const load = () =>
+      apiGet<IntradayCandle[]>(`/intraday-candles/${symbol}?feed=ysflex`)
+        .then((data) => !cancelled && setMinutes(intradayToChart(data)))
+        .catch(() => !cancelled && setError("Chưa tải được nến 1 phút, đang thử lại..."));
+    void load();
+    const timer = setInterval(load, INTRADAY_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [symbol, intraday]);
+
+  // Nguồn mock: nến ngày (luôn cần: cây hôm nay làm mốc cho realtime) và nến tuần khi chọn 1W.
+  useEffect(() => {
+    if (intraday) return;
     let cancelled = false;
     setError(null);
     apiGet<CandleDto[]>(`/candles/${symbol}?tf=1D`)
@@ -141,10 +170,10 @@ export function CandleChart({ symbol }: { symbol: string }) {
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, intraday]);
 
   useEffect(() => {
-    if (prefs.timeframe !== "1W" || weekly) return;
+    if (intraday || prefs.timeframe !== "1W" || weekly) return;
     let cancelled = false;
     apiGet<CandleDto[]>(`/candles/${symbol}?tf=1W`)
       .then((data) => !cancelled && setWeekly(data))
@@ -152,17 +181,18 @@ export function CandleChart({ symbol }: { symbol: string }) {
     return () => {
       cancelled = true;
     };
-  }, [symbol, prefs.timeframe, weekly]);
+  }, [symbol, prefs.timeframe, weekly, intraday]);
 
   const todayBase = daily?.at(-1) ?? null;
-  const base = prefs.timeframe === "1W" ? weekly : daily;
+  const base = intraday ? minutes : prefs.timeframe === "1W" ? weekly : daily;
 
   // Chuỗi nến đang vẽ, cây cuối đã ghép với giá realtime.
   const candles = useMemo(() => {
     if (!base || base.length === 0) return null;
-    const last = liveLastCandle(base[base.length - 1], quote, todayBase);
+    const tail = base[base.length - 1];
+    const last = intraday ? liveIntradayLast(tail, quote) : liveLastCandle(tail, quote, todayBase);
     return [...base.slice(0, -1), last];
-  }, [base, quote, todayBase]);
+  }, [base, quote, todayBase, intraday]);
 
   // Tạo biểu đồ một lần; huỷ khi đóng popup để không rò bộ nhớ.
   useEffect(() => {
@@ -172,7 +202,7 @@ export function CandleChart({ symbol }: { symbol: string }) {
       layout: { background: { color: "#14141a" }, textColor: "#cfcfcf", fontSize: 11, attributionLogo: true },
       grid: { vertLines: { color: "#23232d" }, horzLines: { color: "#23232d" } },
       rightPriceScale: { borderColor: "#47475e" },
-      timeScale: { borderColor: "#47475e", rightOffset: 4 },
+      timeScale: { borderColor: "#47475e", rightOffset: 4, timeVisible: intraday, secondsVisible: false },
       crosshair: { mode: 0 },
     });
     chartRef.current = chart;
@@ -184,6 +214,8 @@ export function CandleChart({ symbol }: { symbol: string }) {
       ema5Ref.current = null;
       ema20Ref.current = null;
     };
+    // Biểu đồ dựng một lần cho mỗi lần mở popup; nguồn không đổi trong lúc popup mở.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Dựng lại series khi đổi kiểu hay bật tắt chỉ báo; nạp lại toàn bộ dữ liệu khi đổi khung hay mã.
@@ -219,7 +251,7 @@ export function CandleChart({ symbol }: { symbol: string }) {
     if (prefs.ema5) ema5Ref.current = addEma(5, EMA5_COLOR);
     if (prefs.ema20) ema20Ref.current = addEma(20, EMA20_COLOR);
 
-    const from = rangeStart(data[data.length - 1].time, prefs.range);
+    const from = intraday ? null : rangeStart(String(data[data.length - 1].time), prefs.range);
     if (from) chart.timeScale().setVisibleRange({ from: from as Time, to: data[data.length - 1].time as Time });
     else chart.timeScale().fitContent();
     // Chỉ dựng lại khi đổi những thứ này; cây cuối realtime đi qua effect bên dưới bằng update().
@@ -279,12 +311,18 @@ export function CandleChart({ symbol }: { symbol: string }) {
         >
           {TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
-        <div className="ui-seg" role="group" aria-label="Khung thời gian">
-          {(["1D", "1W"] as Timeframe[]).map((value) => (
-            <button key={value} type="button" aria-pressed={prefs.timeframe === value} data-testid={`chart-tf-${value}`}
-              onClick={() => update({ timeframe: value })}>{value}</button>
-          ))}
-        </div>
+        {intraday ? (
+          <span className="ui-chart-note" data-testid="chart-intraday-note" title="Luồng /market của Yuanta chỉ có dữ liệu trong ngày">
+            Nến 1 phút trong ngày (nến ngày cần nguồn khác)
+          </span>
+        ) : (
+          <div className="ui-seg" role="group" aria-label="Khung thời gian">
+            {(["1D", "1W"] as Timeframe[]).map((value) => (
+              <button key={value} type="button" aria-pressed={prefs.timeframe === value} data-testid={`chart-tf-${value}`}
+                onClick={() => update({ timeframe: value })}>{value}</button>
+            ))}
+          </div>
+        )}
         <label className="ui-check"><input type="checkbox" checked={prefs.ema5} data-testid="chart-ema5" onChange={(event) => update({ ema5: event.target.checked })} /> EMA 5</label>
         <label className="ui-check"><input type="checkbox" checked={prefs.ema20} data-testid="chart-ema20" onChange={(event) => update({ ema20: event.target.checked })} /> EMA 20</label>
         <label className="ui-check"><input type="checkbox" checked={prefs.volume} data-testid="chart-volume" onChange={(event) => update({ volume: event.target.checked })} /> Khối lượng</label>
@@ -297,7 +335,7 @@ export function CandleChart({ symbol }: { symbol: string }) {
       </div>
 
       <div className="ui-chart-legend" data-testid="chart-legend">
-        <b>{symbol} · {prefs.timeframe}</b>
+        <b>{symbol} · {intraday ? "1 phút" : prefs.timeframe}</b>
         {legend && (
           <>
             <span>O<i className={tone}>{price(legend.candle.open)}</i></span>
@@ -318,12 +356,14 @@ export function CandleChart({ symbol }: { symbol: string }) {
         {error && <p className="ui-chart-error" role="alert">{error}</p>}
       </div>
 
-      <div className="ui-seg ui-chart-ranges" role="group" aria-label="Khoảng thời gian">
-        {RANGES.map((value) => (
-          <button key={value} type="button" aria-pressed={prefs.range === value} data-testid={`chart-range-${value}`}
-            onClick={() => update({ range: value })}>{value === "MAX" ? "Max" : value}</button>
-        ))}
-      </div>
+      {!intraday && (
+        <div className="ui-seg ui-chart-ranges" role="group" aria-label="Khoảng thời gian">
+          {RANGES.map((value) => (
+            <button key={value} type="button" aria-pressed={prefs.range === value} data-testid={`chart-range-${value}`}
+              onClick={() => update({ range: value })}>{value === "MAX" ? "Max" : value}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

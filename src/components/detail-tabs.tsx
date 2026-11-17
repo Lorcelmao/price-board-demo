@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { IntradayCandle, TradeTick } from "../../shared/feed";
 import type { CandleDto, CompanyDto, IntradayBucket, ProfileLevel } from "../../shared/protocol";
 import { apiGet } from "../net/api";
 import { formatPrice } from "../net/format";
 import { formatVolumeBoard } from "../lib/format-board";
 import { useQuote } from "../lib/quote-store";
-import { nextTape, volumeByHour, type Trade } from "../lib/trade-tape";
+import { nextTape, profileFromTrades, volumeByHour, type Trade } from "../lib/trade-tape";
+import type { SourceView } from "./footer-bar";
 
-// Bốn tab bên phải popup chi tiết mã. Dữ liệu thị trường là API mở của mock,
-// không cần đăng nhập.
+// Bốn tab bên phải popup chi tiết mã, không cần đăng nhập.
+// Nguồn mock: API mở của mock server. Nguồn Yuanta: lịch sử trong ngày lấy qua gateway
+// (/api/trades, /api/intraday-candles); luồng /market không có lịch sử theo ngày.
 
 const tone = (price: number | null, ref: number, ceil: number, floor: number) => {
   if (!price || !ref) return "px-ref";
@@ -20,10 +23,11 @@ const shares = (value: number) => value.toLocaleString("en-US");
 const clock = (time: number) =>
   new Date(time).toLocaleTimeString("vi-VN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-// Tải một API mở, tải lại mỗi `everyMs` (0 là chỉ tải một lần).
-function usePolled<T>(path: string, everyMs = 0): T | null {
+// Tải một API mở, tải lại mỗi `everyMs` (0 là chỉ tải một lần). path null thì không tải.
+function usePolled<T>(path: string | null, everyMs = 0): T | null {
   const [data, setData] = useState<T | null>(null);
   useEffect(() => {
+    if (!path) return;
     let cancelled = false;
     const load = () => apiGet<T>(path).then((value) => !cancelled && setData(value)).catch(() => undefined);
     void load();
@@ -37,9 +41,13 @@ function usePolled<T>(path: string, everyMs = 0): T | null {
 }
 
 // ---- Độ sâu giá ----
-export function DepthTab({ symbol }: { symbol: string }) {
+export function DepthTab({ symbol, source = "mock" }: { symbol: string; source?: SourceView }) {
   const quote = useQuote(symbol);
-  const profile = usePolled<ProfileLevel[]>(`/volume-profile/${symbol}`, 5_000);
+  const yuanta = source === "ysflex";
+  const mockProfile = usePolled<ProfileLevel[]>(yuanta ? null : `/volume-profile/${symbol}`, 5_000);
+  // Nguồn Yuanta: cộng khối lượng theo giá từ 200 lệnh khớp gần nhất.
+  const ticks = usePolled<TradeTick[]>(yuanta ? `/trades/${symbol}?feed=ysflex&size=200` : null, 10_000);
+  const profile = yuanta ? (ticks ? profileFromTrades(ticks) : null) : mockProfile;
   const { ref, ceil, floor } = quote;
   const bidTotal = quote.bids.reduce((sum, [, volume]) => sum + volume, 0);
   const askTotal = quote.asks.reduce((sum, [, volume]) => sum + volume, 0);
@@ -74,7 +82,7 @@ export function DepthTab({ symbol }: { symbol: string }) {
         </tbody>
       </table>
 
-      <h4 className="ui-tab-sub">Khối lượng khớp theo mức giá</h4>
+      <h4 className="ui-tab-sub">Khối lượng khớp theo mức giá{yuanta ? " (200 lệnh khớp gần nhất)" : ""}</h4>
       <div className="ui-profile" data-testid="depth-profile">
         {(profile ?? []).map((level) => (
           <div key={level.price} className="ui-profile-row">
@@ -98,7 +106,57 @@ export function DepthTab({ symbol }: { symbol: string }) {
 }
 
 // ---- Khớp lệnh ----
-export function TradesTab({ symbol }: { symbol: string }) {
+const SIDE_LABEL = { BUY: "M", SELL: "B" } as const;
+
+// Nguồn Yuanta: lệnh khớp thật (có chiều mua/bán chủ động) và khối lượng theo giờ từ nến 1 phút.
+function YuantaTradesTab({ symbol }: { symbol: string }) {
+  const quote = useQuote(symbol);
+  const ticks = usePolled<TradeTick[]>(`/trades/${symbol}?feed=ysflex&size=50`, 5_000);
+  const minutes = usePolled<IntradayCandle[]>(`/intraday-candles/${symbol}?feed=ysflex`, 60_000);
+  const hours = useMemo(
+    () => volumeByHour((minutes ?? []).map((candle) => ({ minute: candle.time, volume: candle.volume }))),
+    [minutes],
+  );
+  const maxHour = Math.max(1, ...hours.map((item) => item.volume));
+
+  return (
+    <div className="ui-tab-body" data-testid="tab-trades">
+      <table className="ui-trades">
+        <thead><tr><th>Giờ</th><th>Giá</th><th>KL</th><th title="Chiều chủ động: M mua, B bán">M/B</th></tr></thead>
+        <tbody>
+          {!ticks && <tr><td colSpan={4} className="ui-tab-empty">Đang tải lệnh khớp...</td></tr>}
+          {ticks && ticks.length === 0 && <tr><td colSpan={4} className="ui-tab-empty">Chưa có lệnh khớp.</td></tr>}
+          {(ticks ?? []).map((tick) => (
+            <tr key={tick.seq}>
+              <td>{tick.time}</td>
+              <td className={tone(tick.price, quote.ref, quote.ceil, quote.floor)}>{formatPrice(tick.price)}</td>
+              <td data-volume={tick.volume}>{shares(tick.volume)}</td>
+              <td className={tick.side === "BUY" ? "px-up" : tick.side === "SELL" ? "px-down" : ""}>
+                {tick.side ? SIDE_LABEL[tick.side] : ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h4 className="ui-tab-sub">Khối lượng theo giờ</h4>
+      <div className="ui-hours" data-testid="trades-hours">
+        {hours.map((item) => (
+          <div key={item.hour} className="ui-hour" title={`${item.hour}h: ${shares(item.volume)} cp`}>
+            <i style={{ height: `${(item.volume / maxHour) * 100}%` }} />
+            <span>{String(item.hour).padStart(2, "0")}h</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function TradesTab({ symbol, source = "mock" }: { symbol: string; source?: SourceView }) {
+  return source === "ysflex" ? <YuantaTradesTab symbol={symbol} /> : <MockTradesTab symbol={symbol} />;
+}
+
+// Nguồn mock không gửi từng lần khớp, nên danh sách suy ra từ mức tăng Tổng KL (lib/trade-tape.ts).
+function MockTradesTab({ symbol }: { symbol: string }) {
   const quote = useQuote(symbol);
   const intraday = usePolled<IntradayBucket[]>(`/intraday/${symbol}`, 10_000);
   const [tape, setTape] = useState<Trade[]>([]);
@@ -148,8 +206,9 @@ export function TradesTab({ symbol }: { symbol: string }) {
 // ---- Lịch sử giá ----
 const HISTORY_ROWS: Array<[string, number]> = [["1M", 22], ["3M", 66], ["6M", 130]];
 
-export function HistoryTab({ symbol }: { symbol: string }) {
-  const candles = usePolled<CandleDto[]>(`/candles/${symbol}?tf=1D`, 30_000);
+export function HistoryTab({ symbol, source = "mock" }: { symbol: string; source?: SourceView }) {
+  const yuanta = source === "ysflex";
+  const candles = usePolled<CandleDto[]>(yuanta ? null : `/candles/${symbol}?tf=1D`, 30_000);
   const [rows, setRows] = useState(22);
   const recent = useMemo(() => {
     if (!candles) return [];
@@ -159,6 +218,15 @@ export function HistoryTab({ symbol }: { symbol: string }) {
       return { candle, change, changePct: (change / list[index].close) * 100 };
     }).reverse();
   }, [candles, rows]);
+
+  if (yuanta) {
+    return (
+      <div className="ui-tab-body ui-tab-empty" data-testid="tab-history">
+        Luồng giá của Yuanta chỉ có dữ liệu trong ngày, chưa có lịch sử theo ngày.
+        Xem nến 1 phút ở biểu đồ bên trái và lệnh khớp ở tab Khớp lệnh.
+      </div>
+    );
+  }
 
   return (
     <div className="ui-tab-body" data-testid="tab-history">
