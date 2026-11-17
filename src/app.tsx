@@ -51,11 +51,12 @@ import { draftFromCell, type CellKind } from "./lib/order-draft";
 import { startClockPhase, useSessionPhase } from "./lib/session-phase";
 import { VN30_MOCK, VN30_YSFLEX } from "./lib/vn30";
 import { startYsflexSource } from "./lib/ysflex-source";
+import { apiUrl, REMOTE_API } from "./net/api-base";
 
 // Mặc định dùng mock server chạy trên máy. ?nguon=ysflex chuyển sang luồng giá công khai của YSFlex
-// (chỉ đọc, 30 mã VN30); nút nhỏ ở chân trang đổi qua lại giữa hai nguồn.
+// (chỉ đọc, 30 mã VN30); nút nhỏ ở chân trang đổi qua lại giữa hai nguồn. Bản deploy chỉ dùng mock.
 const readSource = (): SourceView =>
-  new URLSearchParams(location.search).get("nguon") === "ysflex" ? "ysflex" : "mock";
+  !REMOTE_API && new URLSearchParams(location.search).get("nguon") === "ysflex" ? "ysflex" : "mock";
 
 // Bảng hàm lấy giá trị sắp xếp, lấy từ định nghĩa cột duy nhất.
 const SORT_GETTERS = Object.fromEntries(
@@ -238,7 +239,7 @@ export function App() {
     }
     let cancelled = false;
     setInstrumentsState("loading");
-    fetch("/api/instruments")
+    fetch(apiUrl("/instruments"))
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
       .then((raw) => {
         if (cancelled) return;

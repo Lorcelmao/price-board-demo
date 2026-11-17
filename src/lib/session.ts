@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { apiUrl } from "../net/api-base";
 
 // Phiên đăng nhập bản gọn: một token lưu trong sessionStorage
 // (theo tab: đóng tab là mất), không có refresh token. Chỉ dùng với nguồn mock.
@@ -73,7 +74,7 @@ export type LoginOutcome = { ok: true } | { ok: false; error: string };
 
 export async function login(username: string, password: string): Promise<LoginOutcome> {
   try {
-    const response = await fetch("/api/login", {
+    const response = await fetch(apiUrl("/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -92,7 +93,7 @@ export async function logout(): Promise<void> {
   setState({ session: null, expired: false });
   if (!token) return;
   try {
-    await fetch("/api/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    await fetch(apiUrl("/logout"), { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   } catch {
     /* Server không trả lời thì phía trang vẫn coi như đã đăng xuất. */
   }
@@ -109,7 +110,7 @@ export async function checkSession(): Promise<void> {
   const token = state.session?.token;
   if (!token) return;
   try {
-    const response = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(apiUrl("/me"), { headers: { Authorization: `Bearer ${token}` } });
     if (response.status === 401) expire();
   } catch {
     /* Mock chưa chạy: giữ phiên, lần gọi sau sẽ biết. */

@@ -55,6 +55,17 @@ Lệnh trên chạy mock server (cổng 8790) và Vite (cổng 4213) cùng lúc.
 | `npm run server` | Chỉ chạy mock server |
 | `npm run web` | Chỉ chạy Vite |
 
+## Deploy
+
+Giao diện là trang tĩnh, còn mock server cần chạy liên tục để giữ WebSocket và trạng thái trong bộ nhớ. Vì vậy hai phần deploy ở hai nơi:
+
+| Phần | Nơi chạy | Cấu hình |
+| --- | --- | --- |
+| Mock server | Render (Web Service) | Build `npm ci --include=dev`, Start `npm run server`. Server tự đọc cổng từ biến `PORT`. |
+| Giao diện | Vercel | Preset Vite, giữ lệnh build mặc định. Biến môi trường `VITE_API_URL` là địa chỉ server trên Render. |
+
+Khi có `VITE_API_URL`, giao diện gọi REST và WebSocket thẳng tới địa chỉ đó (server đã bật CORS) và ẩn nguồn YSFlex. Gói miễn phí của Render cho server ngủ khi không có người dùng, nên lần mở đầu có thể phải chờ khoảng một phút. Mọi người xem dùng chung một thị trường giả lập và một tài khoản giao dịch.
+
 ## Nguồn giá YSFlex
 
 Thêm `?nguon=ysflex` vào địa chỉ, hoặc bấm nút "Dùng YSFlex" ở chân trang, để xem giá từ luồng `/market` công khai của YSFlex. Ở chế độ này:

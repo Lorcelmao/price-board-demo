@@ -1,4 +1,5 @@
 import type { ClientMessage, MarketWire, ServerMessage } from "../../shared/protocol";
+import { socketUrl } from "./api-base";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -6,11 +7,6 @@ const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_TIMEOUT_MS = 3_000;
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15_000;
-
-const socketUrl = () => {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${location.host}/ws`;
-};
 
 // Client WebSocket của mock server, có đếm số người dùng cho mỗi mã.
 // Hai màn cùng xem FPT chỉ tạo một đăng ký, và chỉ huỷ khi màn cuối cùng rời đi.

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import { apiUrl } from "./api-base";
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`/api${path}`);
+  const response = await fetch(apiUrl(path));
   if (!response.ok) throw new Error(`Không tải được ${path} (${response.status})`);
   return (await response.json()) as T;
 }
 
 // Trả về cả trạng thái HTTP vì lệnh bị từ chối (422, 409) vẫn có nội dung cần đọc.
 export async function apiPost<T>(path: string, body?: unknown): Promise<{ status: number; data: T }> {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
